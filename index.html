@@ -1046,6 +1046,9 @@
     overflow-y: auto;
     font-size: 16px;
   }
+  /* Дев-панель целиком скрыта по умолчанию — показывается только когда ?dev=1 в URL */
+  #devpanel { display: none; }
+  body.dev-mode #devpanel { display: block; }
   #devpanel h2 {
     font-family: 'Bungee', sans-serif;
     font-size: 14px;
@@ -1354,8 +1357,7 @@
 </div>
 
 <div id="devpanel">
-  <h2>DEV (этап 1)</h2>
-  <div class="note">Полная дев-панель — этап 4. Пока — базовые кнопки.</div>
+  <h2>DEV</h2>
   <button id="dev-reset-loc">Сбросить локацию</button>
   <button id="dev-next-loc">Следующая локация</button>
   <button id="dev-heal">Восстановить HP</button>

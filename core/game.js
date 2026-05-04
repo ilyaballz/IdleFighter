@@ -241,13 +241,18 @@ document.getElementById('defeat-restart').addEventListener('click', () => enterH
 document.getElementById('victory-next').addEventListener('click', () => enterHub());
 
 // ───────── Дев-панель ─────────
+// Включается через ?dev=1 в URL. Без этого параметра кнопки не привязываются и скрыты CSS-ом.
 
-bindDevPanel({
-  world,
-  getScene: () => scene,
-  enterHub,
-  startLocation,
-});
+const devMode = new URLSearchParams(location.search).get('dev') === '1';
+if (devMode) {
+  document.body.classList.add('dev-mode');
+  bindDevPanel({
+    world,
+    getScene: () => scene,
+    enterHub,
+    startLocation,
+  });
+}
 
 // ───────── Старт ─────────
 

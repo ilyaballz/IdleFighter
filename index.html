@@ -1,0 +1,1389 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Street Brawler 80s — prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=VT323&family=Bungee&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0612;
+    --neon-pink: #ff3ea5;
+    --neon-cyan: #4fd6ff;
+    --neon-yellow: #ffd23f;
+    --panel: #15101e;
+    --panel-border: #3a2f5a;
+    --text: #e8e3f0;
+    --dim: #8a82a0;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: #050308;
+    color: var(--text);
+    font-family: 'VT323', monospace;
+    height: 100%;
+    overflow: hidden;
+  }
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 16px;
+  }
+
+  /* Mobile-style "phone" */
+  #phone {
+    width: 400px;
+    height: 900px;
+    max-height: calc(100vh - 32px);
+    background: var(--bg);
+    border: 2px solid var(--panel-border);
+    border-radius: 24px;
+    overflow: hidden;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 0 40px rgba(255, 62, 165, 0.15);
+  }
+
+  /* HUD top */
+  #hud {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    z-index: 10;
+    padding: 10px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    background: linear-gradient(to bottom, rgba(10,6,18,0.9), rgba(10,6,18,0));
+    pointer-events: none;
+  }
+  .hud-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 18px;
+  }
+  .hud-row .label { color: var(--dim); }
+  .hud-row .value { color: var(--neon-cyan); }
+  #hud .title {
+    font-family: 'Bungee', sans-serif;
+    font-size: 14px;
+    color: var(--neon-pink);
+    letter-spacing: 1px;
+  }
+  .hp-bar-bg {
+    flex: 1;
+    height: 14px;
+    background: #2a1f3d;
+    border: 1px solid var(--panel-border);
+    border-radius: 3px;
+    overflow: hidden;
+    position: relative;
+  }
+  .hp-bar-fill {
+    height: 100%;
+    background: linear-gradient(to right, #ff3ea5, #ff7e3e);
+    transition: width 0.1s linear;
+  }
+  .hp-bar-text {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    color: #fff;
+    text-shadow: 1px 1px 0 #000;
+  }
+
+  /* Canvas area */
+  #game-canvas {
+    flex: 1;
+    width: 100%;
+    height: 100%;
+    display: block;
+    image-rendering: pixelated;
+  }
+
+  /* Skill bar bottom */
+  #skill-bar {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    z-index: 10;
+    padding: 12px 14px 18px;
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    background: linear-gradient(to top, rgba(10,6,18,0.95), rgba(10,6,18,0));
+  }
+  .skill-btn {
+    flex: 1;
+    height: 76px;
+    max-width: 110px;
+    background: var(--panel);
+    border: 2px solid var(--panel-border);
+    border-radius: 10px;
+    color: var(--text);
+    font-family: 'VT323', monospace;
+    font-size: 14px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+    cursor: pointer;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    transition: transform 0.06s, border-color 0.1s;
+  }
+  .skill-btn .name {
+    position: absolute;
+    top: 6px; left: 6px; right: 6px;
+    font-size: 14px;
+    color: var(--neon-cyan);
+    line-height: 1;
+    text-align: center;
+    z-index: 2;
+  }
+  .skill-btn .lvl {
+    position: absolute;
+    top: 4px; right: 6px;
+    font-size: 12px;
+    color: var(--dim);
+    z-index: 2;
+  }
+  .skill-btn .icon {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 28px;
+    z-index: 1;
+    opacity: 0.95;
+  }
+  .skill-btn .cd-text {
+    position: absolute;
+    bottom: 4px; left: 0; right: 0;
+    text-align: center;
+    font-size: 14px;
+    color: var(--text);
+    z-index: 3;
+  }
+  .skill-btn .cd-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    z-index: 2;
+    transform-origin: top;
+    transform: scaleY(var(--cd-pct, 0));
+    pointer-events: none;
+    transition: transform 0.05s linear;
+  }
+  .skill-btn .charges-bar {
+    position: absolute;
+    bottom: 0; left: 0;
+    height: 4px;
+    background: var(--neon-yellow);
+    width: var(--charges-pct, 0%);
+    z-index: 3;
+    transition: width 0.05s linear;
+  }
+  .skill-btn.ready {
+    border-color: var(--neon-cyan);
+    box-shadow: 0 0 8px rgba(79, 214, 255, 0.4);
+  }
+  .skill-btn.charges-full {
+    border-color: var(--neon-yellow);
+    box-shadow: 0 0 10px rgba(255, 210, 63, 0.6);
+  }
+  .skill-btn:active.ready,
+  .skill-btn:active.charges-full {
+    transform: scale(0.95);
+  }
+  .skill-btn.empty {
+    opacity: 0.3;
+    pointer-events: none;
+    border-style: dashed;
+  }
+
+  /* Hub scene */
+  #hub-scene {
+    position: absolute;
+    inset: 0;
+    background: var(--bg);
+    z-index: 25;
+    display: none;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  #hub-scene.show { display: flex; }
+  #hub-hud {
+    padding: 10px 14px 8px;
+    background: linear-gradient(to bottom, #1c0f2c, var(--bg));
+    border-bottom: 1px solid var(--panel-border);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  #hub-hud .row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 16px;
+  }
+  #hub-hud .row .energy { color: var(--neon-cyan); }
+  #hub-hud .row .coins  { color: var(--neon-yellow); }
+  #hub-hud .row .loc-info { color: var(--neon-pink); font-family: 'Bungee', sans-serif; font-size: 13px; letter-spacing: 1px; }
+  #hub-hud .energy-bar {
+    height: 6px;
+    background: #2a1f3d;
+    border: 1px solid var(--panel-border);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  #hub-hud .energy-fill {
+    height: 100%;
+    background: linear-gradient(to right, var(--neon-cyan), #6effff);
+    transition: width 0.2s linear;
+  }
+  /* Sub-screens */
+  .hub-screen {
+    display: none;
+    flex: 1;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .hub-screen.active { display: flex; }
+  .sub-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--panel-border);
+    background: #1a1226;
+  }
+  .sub-header .title {
+    font-family: 'Bungee', sans-serif;
+    color: var(--neon-cyan);
+    font-size: 14px;
+    letter-spacing: 1px;
+  }
+  .sub-header .back-btn {
+    background: transparent;
+    border: 1px solid var(--panel-border);
+    color: var(--dim);
+    font-family: 'VT323', monospace;
+    font-size: 14px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .sub-header .back-btn:hover { color: var(--text); border-color: var(--neon-cyan); }
+  .sub-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  /* Buildings grid (home) */
+  #buildings-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .building-card {
+    background: var(--panel);
+    border: 2px solid var(--panel-border);
+    border-radius: 12px;
+    padding: 16px 8px 12px;
+    text-align: center;
+    cursor: pointer;
+    transition: transform 0.06s, border-color 0.1s, box-shadow 0.15s;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    position: relative;
+  }
+  .building-card:hover {
+    border-color: var(--neon-cyan);
+    box-shadow: 0 0 8px rgba(79, 214, 255, 0.3);
+  }
+  .building-card:active { transform: scale(0.96); }
+  .building-card .icon { font-size: 38px; line-height: 1; }
+  .building-card .name {
+    font-family: 'Bungee', sans-serif;
+    color: var(--neon-pink);
+    font-size: 14px;
+    letter-spacing: 1px;
+    margin-top: 6px;
+  }
+  .building-card .hint {
+    color: var(--dim);
+    font-size: 12px;
+    margin-top: 3px;
+  }
+  .building-card .hint.badge {
+    color: var(--neon-yellow);
+    font-family: 'Bungee', sans-serif;
+    font-size: 11px;
+    letter-spacing: 1px;
+  }
+  .building-card.stub { opacity: 0.65; }
+  .building-card.stub:hover { border-color: var(--panel-border); box-shadow: none; }
+  .building-card .corner-badge {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    background: var(--neon-pink);
+    color: #fff;
+    font-size: 10px;
+    font-family: 'Bungee', sans-serif;
+    border-radius: 999px;
+    min-width: 18px;
+    height: 18px;
+    line-height: 18px;
+    padding: 0 5px;
+    text-align: center;
+  }
+
+  /* Wardrobe */
+  #wardrobe-tabs {
+    display: flex;
+    gap: 4px;
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 4px;
+  }
+  .ward-tab {
+    flex: 1;
+    aspect-ratio: 1 / 1;
+    max-width: 60px;
+    background: #1a1226;
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    cursor: pointer;
+    transition: border-color 0.1s;
+    position: relative;
+  }
+  .ward-tab.active {
+    border-color: var(--neon-cyan);
+    background: #2a1f3d;
+    box-shadow: 0 0 6px rgba(79, 214, 255, 0.4);
+  }
+  .ward-tab .equipped-dot {
+    position: absolute;
+    top: 3px; right: 3px;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--neon-cyan);
+    box-shadow: 0 0 4px var(--neon-cyan);
+  }
+
+  .ward-section {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .ward-section h3 {
+    margin: 0;
+    font-family: 'Bungee', sans-serif;
+    color: var(--neon-cyan);
+    font-size: 12px;
+    letter-spacing: 1px;
+  }
+  .ward-empty {
+    color: var(--dim);
+    font-size: 13px;
+    padding: 4px 0;
+  }
+
+  .item-card {
+    background: #1a1226;
+    border: 2px solid var(--panel-border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    cursor: pointer;
+    transition: transform 0.06s, box-shadow 0.1s;
+  }
+  .item-card:hover { box-shadow: 0 0 8px rgba(255, 255, 255, 0.1); }
+  .item-card:active { transform: scale(0.98); }
+  .item-card.equipped {
+    background: #2a1f3d;
+    box-shadow: 0 0 8px rgba(79, 214, 255, 0.3);
+  }
+  .item-card .head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .item-card .rarity-tag {
+    font-family: 'Bungee', sans-serif;
+    font-size: 10px;
+    letter-spacing: 1px;
+  }
+  .item-card .primary {
+    color: var(--text);
+    font-size: 14px;
+  }
+  .item-card .primary .val { color: var(--neon-yellow); }
+  .item-card .affix {
+    color: var(--dim);
+    font-size: 12px;
+  }
+  .item-card .affix .val { color: var(--neon-cyan); }
+  .item-card .equip-tag {
+    font-size: 11px;
+    color: var(--neon-cyan);
+    font-family: 'Bungee', sans-serif;
+    letter-spacing: 1px;
+  }
+  .item-card.equipped .equip-tag::before { content: '✓ НАДЕТ'; }
+
+  .ward-action-btn {
+    margin-top: 4px;
+    padding: 6px 10px;
+    background: transparent;
+    border: 1px solid var(--panel-border);
+    color: var(--dim);
+    font-family: 'VT323', monospace;
+    font-size: 13px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .ward-action-btn:hover { color: var(--text); border-color: var(--neon-pink); }
+  #hub-scene h2.section {
+    font-family: 'Bungee', sans-serif;
+    color: var(--neon-cyan);
+    font-size: 13px;
+    margin: 0;
+    letter-spacing: 1px;
+  }
+
+  /* Stats panel */
+  .stats-panel {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 3px 14px;
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 14px;
+  }
+  .stats-panel .stat-row {
+    display: flex;
+    justify-content: space-between;
+  }
+  .stats-panel .lbl { color: var(--dim); }
+  .stats-panel .val { color: var(--neon-cyan); }
+  .stats-panel .val.up { color: var(--neon-yellow); }
+
+  .trainer-card {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .trainer-card .stat-name {
+    font-family: 'Bungee', sans-serif;
+    color: var(--neon-pink);
+    font-size: 11px;
+    letter-spacing: 1px;
+  }
+  .trainer-card .bonus-desc {
+    color: var(--dim);
+    font-size: 12px;
+  }
+  .trainer-card .head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 17px;
+  }
+  .trainer-card .head .icon { font-size: 22px; margin-right: 4px; }
+  .trainer-card .head .level { color: var(--neon-cyan); }
+  .trainer-card .xp-bar {
+    height: 8px;
+    background: #2a1f3d;
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .trainer-card .xp-fill {
+    height: 100%;
+    background: linear-gradient(to right, #4fd6ff, #ff3ea5);
+    transition: width 0.15s linear;
+  }
+  .trainer-card .meta {
+    color: var(--dim);
+    font-size: 13px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .trainer-card .actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 2px;
+  }
+  .trainer-card button {
+    flex: 1;
+    padding: 8px;
+    background: #221635;
+    border: 1px solid var(--panel-border);
+    color: var(--text);
+    font-family: 'VT323', monospace;
+    font-size: 14px;
+    border-radius: 5px;
+    cursor: pointer;
+  }
+  .trainer-card button.primary {
+    border-color: var(--neon-cyan);
+    color: var(--neon-cyan);
+  }
+  .trainer-card button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .trainer-card button:not(:disabled):hover { background: #2e1c4a; }
+
+  /* Loadout in hub */
+  #hub-scene h2 {
+    font-family: 'Bungee', sans-serif;
+    color: var(--neon-cyan);
+    font-size: 13px;
+    margin: 4px 0;
+    letter-spacing: 1px;
+  }
+
+  /* Гача */
+  #gacha-block {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  #gacha-block .gacha-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: var(--text);
+    font-size: 15px;
+  }
+  #gacha-block .gacha-header .tokens {
+    color: var(--neon-yellow);
+    font-family: 'Bungee', sans-serif;
+    font-size: 14px;
+    letter-spacing: 1px;
+  }
+  #gacha-strip {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+    min-height: 80px;
+    padding: 10px;
+    background: #0e0818;
+    border-radius: 6px;
+  }
+  .gacha-icon {
+    flex: 0 0 calc(25% - 8px);   /* 4 в ряд */
+    height: 78px;
+    background: var(--panel);
+    border: 2px solid var(--panel-border);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 4px;
+    filter: grayscale(0.85);
+    opacity: 0.55;
+    transition: transform 0.05s, border-color 0.1s, box-shadow 0.1s;
+    overflow: hidden;
+  }
+  .gacha-icon .icon {
+    font-size: 30px;
+    line-height: 1;
+  }
+  .gacha-icon .name {
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--text);
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+    line-height: 1.1;
+  }
+  .gacha-icon .lock {
+    position: absolute;
+    bottom: 4px;
+    right: 6px;
+    font-size: 10px;
+    color: var(--dim);
+  }
+  .gacha-icon.locked .name { color: var(--dim); }
+  .gacha-icon.highlighted {
+    border-color: var(--neon-pink);
+    background: #2a1f3d;
+    box-shadow: 0 0 10px var(--neon-pink);
+    filter: none;
+    opacity: 1;
+    transform: scale(1.15);
+  }
+  .gacha-icon.unlocked {
+    filter: none;
+    opacity: 0.95;
+  }
+  .gacha-icon.winner-unlock {
+    border-color: var(--neon-yellow);
+    background: #2e2510;
+    box-shadow: 0 0 22px var(--neon-yellow), 0 0 40px rgba(255, 210, 63, 0.4);
+    filter: none;
+    opacity: 1;
+    transform: scale(1.25);
+    animation: gacha-win-gold 0.55s ease-out 5;
+  }
+  .gacha-icon.winner-shards {
+    border-color: var(--neon-cyan);
+    background: #0e2235;
+    box-shadow: 0 0 22px var(--neon-cyan), 0 0 40px rgba(79, 214, 255, 0.4);
+    filter: none;
+    opacity: 1;
+    transform: scale(1.2);
+    animation: gacha-win-cyan 0.55s ease-out 4;
+  }
+  @keyframes gacha-win-gold {
+    0%, 100% { transform: scale(1.25); box-shadow: 0 0 22px var(--neon-yellow); }
+    50%      { transform: scale(1.45); box-shadow: 0 0 36px var(--neon-yellow), 0 0 60px rgba(255, 210, 63, 0.6); }
+  }
+  @keyframes gacha-win-cyan {
+    0%, 100% { transform: scale(1.2); box-shadow: 0 0 22px var(--neon-cyan); }
+    50%      { transform: scale(1.4); box-shadow: 0 0 36px var(--neon-cyan), 0 0 60px rgba(79, 214, 255, 0.6); }
+  }
+  #gacha-spin {
+    padding: 10px;
+    font-family: 'Bungee', sans-serif;
+    background: #221635;
+    border: 2px solid var(--neon-pink);
+    color: var(--neon-pink);
+    font-size: 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    letter-spacing: 1px;
+  }
+  #gacha-spin:hover { background: #2c1a45; }
+  #gacha-spin:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    border-color: var(--dim);
+    color: var(--dim);
+    background: var(--panel);
+  }
+  #gacha-result {
+    text-align: center;
+    font-family: 'Bungee', sans-serif;
+    color: var(--neon-yellow);
+    font-size: 13px;
+    min-height: 16px;
+    letter-spacing: 1px;
+  }
+  #gacha-empty {
+    color: var(--dim);
+    text-align: center;
+    font-size: 14px;
+    padding: 8px;
+  }
+  .loadout-slots {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+  }
+  .loadout-slot {
+    width: 92px;
+    height: 92px;
+    border: 2px dashed var(--panel-border);
+    border-radius: 10px;
+    background: var(--panel);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--dim);
+    font-size: 13px;
+    cursor: pointer;
+    text-align: center;
+    padding: 4px;
+  }
+  .loadout-slot.filled {
+    border-style: solid;
+    border-color: var(--neon-cyan);
+    color: var(--text);
+  }
+  .loadout-slot .icon { font-size: 28px; }
+  .loadout-slot .lbl  { font-size: 13px; line-height: 1.05; margin-top: 2px; }
+  .loadout-pool {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+  .skill-card {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--text);
+    line-height: 1.2;
+  }
+  .skill-card.locked {
+    opacity: 0.4;
+    cursor: not-allowed;
+    filter: grayscale(0.6);
+  }
+  .skill-card.equipped {
+    border-color: var(--neon-cyan);
+    background: #1c1530;
+    box-shadow: 0 0 6px rgba(79, 214, 255, 0.3);
+  }
+  .skill-card .title {
+    color: var(--neon-cyan);
+    font-size: 16px;
+  }
+  .skill-card .meta {
+    color: var(--dim);
+    font-size: 12px;
+    margin-top: 2px;
+  }
+  .skill-card .desc {
+    margin-top: 4px;
+    color: var(--text);
+    font-size: 13px;
+  }
+  .skill-card .upgrade-btn {
+    margin-top: 6px;
+    padding: 4px 8px;
+    background: #221635;
+    border: 1px solid var(--panel-border);
+    color: var(--neon-yellow);
+    font-family: 'VT323', monospace;
+    font-size: 14px;
+    border-radius: 4px;
+    cursor: pointer;
+    width: 100%;
+  }
+  .skill-card .upgrade-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    color: var(--dim);
+  }
+  .skill-card .shards-info {
+    margin-top: 4px;
+    color: var(--dim);
+    font-size: 12px;
+  }
+
+  #leave-hub {
+    flex-shrink: 0;
+    padding: 14px;
+    margin: 0 12px 12px;
+    font-family: 'Bungee', sans-serif;
+    background: var(--panel);
+    border: 2px solid var(--neon-pink);
+    color: var(--neon-pink);
+    border-radius: 8px;
+    font-size: 18px;
+    cursor: pointer;
+    letter-spacing: 2px;
+  }
+  #leave-hub:hover { background: #1c1530; }
+
+  /* Hub button — floating on battle scene */
+  #hub-btn {
+    position: absolute;
+    top: 70px;
+    right: 10px;
+    z-index: 11;
+    padding: 6px 10px;
+    background: rgba(34, 22, 53, 0.85);
+    border: 1px solid var(--panel-border);
+    color: var(--neon-cyan);
+    font-family: 'VT323', monospace;
+    font-size: 14px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  /* Tap-timing overlay */
+  #tap-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(8, 5, 14, 0.97);
+    z-index: 35;
+    display: none;
+    flex-direction: column;
+    padding: 16px;
+    gap: 12px;
+  }
+  #tap-overlay.show { display: flex; }
+  #tap-overlay .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  #tap-overlay .title {
+    font-family: 'Bungee', sans-serif;
+    font-size: 18px;
+    color: var(--neon-pink);
+  }
+  #tap-overlay .info {
+    display: flex;
+    justify-content: space-between;
+    color: var(--text);
+    font-size: 16px;
+  }
+  #tap-overlay .info .energy { color: var(--neon-cyan); }
+  #tap-overlay .info .counter { color: var(--neon-yellow); }
+  /* XP bar внутри тап-оверлея */
+  .tap-xp-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 6px;
+  }
+  .tap-xp-row .xp-text {
+    display: flex;
+    justify-content: space-between;
+    font-size: 14px;
+    color: var(--text);
+  }
+  .tap-xp-row .xp-text .lvl { color: var(--neon-cyan); }
+  #tap-xp-bar {
+    height: 12px;
+    background: #2a1f3d;
+    border: 1px solid var(--panel-border);
+    border-radius: 3px;
+    overflow: visible;
+    position: relative;
+  }
+  #tap-xp-fill {
+    height: 100%;
+    background: linear-gradient(to right, var(--neon-cyan), var(--neon-pink));
+    border-radius: 2px;
+    transition: width 0.45s cubic-bezier(0.2, 0.6, 0.2, 1);
+  }
+  @keyframes xp-bar-pulse {
+    0%   { box-shadow: 0 0 0 transparent; }
+    40%  { box-shadow: 0 0 14px var(--neon-cyan), 0 0 22px rgba(79, 214, 255, 0.5); }
+    100% { box-shadow: 0 0 0 transparent; }
+  }
+  #tap-xp-bar.pulse {
+    animation: xp-bar-pulse 0.5s ease-out;
+  }
+  .xp-fly {
+    position: absolute;
+    font-family: 'VT323', monospace;
+    font-size: 22px;
+    font-weight: bold;
+    pointer-events: none;
+    z-index: 50;
+    transition: transform 0.45s cubic-bezier(0.55, -0.1, 0.4, 1.2),
+                opacity 0.45s ease-out;
+    will-change: transform, opacity;
+    white-space: nowrap;
+  }
+
+  #tap-bar-wrap {
+    margin: 18px 0 12px;
+    padding: 0 6px;
+  }
+  #tap-bar {
+    position: relative;
+    height: 56px;
+    background: #1a1226;
+    border: 2px solid var(--panel-border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  #tap-bar .zone { position: absolute; top: 0; bottom: 0; }
+  #tap-bar .zone.red    { background: rgba(255, 62, 62, 0.45); }
+  #tap-bar .zone.yellow { background: rgba(255, 210, 63, 0.45); }
+  #tap-bar .zone.green  { background: rgba(91, 227, 91, 0.55); }
+  #tap-bar .cursor {
+    position: absolute;
+    top: -3px; bottom: -3px;
+    width: 4px;
+    background: #fff;
+    box-shadow: 0 0 8px #fff;
+    transform: translateX(-50%);
+    pointer-events: none;
+  }
+  #tap-feedback {
+    text-align: center;
+    height: 26px;
+    font-size: 18px;
+  }
+  #tap-feedback.green  { color: #5be35b; }
+  #tap-feedback.yellow { color: var(--neon-yellow); }
+  #tap-feedback.red    { color: #ff5a5a; }
+  #tap-btn {
+    flex: 1;
+    margin-top: 10px;
+    background: var(--panel);
+    border: 3px solid var(--neon-pink);
+    color: var(--neon-pink);
+    font-family: 'Bungee', sans-serif;
+    font-size: 32px;
+    border-radius: 12px;
+    cursor: pointer;
+    letter-spacing: 4px;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #tap-btn:active { background: #1c1530; transform: scale(0.97); }
+  #tap-exit {
+    background: transparent;
+    border: 1px solid var(--panel-border);
+    color: var(--dim);
+    padding: 6px 12px;
+    font-family: 'VT323', monospace;
+    font-size: 14px;
+    cursor: pointer;
+    border-radius: 4px;
+  }
+
+  /* Defeat overlay */
+  #defeat-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(10, 6, 18, 0.85);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 16px;
+    z-index: 20;
+  }
+  #defeat-overlay.show { display: flex; }
+  #defeat-overlay h1 {
+    font-family: 'Bungee', sans-serif;
+    color: var(--neon-pink);
+    font-size: 36px;
+    margin: 0;
+    text-shadow: 0 0 20px rgba(255, 62, 165, 0.6);
+  }
+  #defeat-overlay button {
+    font-family: 'VT323', monospace;
+    font-size: 20px;
+    padding: 8px 20px;
+    background: var(--panel);
+    color: var(--neon-cyan);
+    border: 2px solid var(--neon-cyan);
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  /* Victory overlay */
+  #victory-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(10, 6, 18, 0.85);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 16px;
+    z-index: 20;
+  }
+  #victory-overlay.show { display: flex; }
+  #victory-overlay h1 {
+    font-family: 'Bungee', sans-serif;
+    color: var(--neon-yellow);
+    font-size: 36px;
+    margin: 0;
+    text-shadow: 0 0 20px rgba(255, 210, 63, 0.6);
+  }
+  #victory-overlay button {
+    font-family: 'VT323', monospace;
+    font-size: 20px;
+    padding: 8px 20px;
+    background: var(--panel);
+    color: var(--neon-yellow);
+    border: 2px solid var(--neon-yellow);
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  /* Dev panel placeholder for stage 1 */
+  #devpanel {
+    width: 280px;
+    max-height: calc(100vh - 32px);
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 12px;
+    overflow-y: auto;
+    font-size: 16px;
+  }
+  #devpanel h2 {
+    font-family: 'Bungee', sans-serif;
+    font-size: 14px;
+    color: var(--neon-cyan);
+    margin: 0 0 8px;
+  }
+  #devpanel .note {
+    color: var(--dim);
+    font-size: 14px;
+    margin-bottom: 12px;
+  }
+  #devpanel button {
+    width: 100%;
+    margin: 4px 0;
+    padding: 6px;
+    background: #221635;
+    border: 1px solid var(--panel-border);
+    color: var(--text);
+    font-family: 'VT323', monospace;
+    font-size: 16px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  #devpanel button:hover { background: #2e1c4a; }
+  #log {
+    margin-top: 12px;
+    background: #0c0815;
+    border: 1px solid var(--panel-border);
+    border-radius: 4px;
+    padding: 6px;
+    height: 280px;
+    overflow-y: auto;
+    font-size: 13px;
+    line-height: 1.3;
+    color: var(--dim);
+  }
+  #log .line { white-space: pre-wrap; }
+  #log .line.crit { color: var(--neon-yellow); }
+  #log .line.kill { color: var(--neon-cyan); }
+  #log .line.warn { color: var(--neon-pink); }
+
+  /* Simulator modal */
+  #sim-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 100;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  #sim-modal.show { display: flex; }
+  #sim-modal .panel {
+    background: var(--panel);
+    border: 2px solid var(--neon-cyan);
+    border-radius: 10px;
+    padding: 16px 18px;
+    max-width: 720px;
+    width: 100%;
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
+    color: var(--text);
+    font-family: 'VT323', monospace;
+    font-size: 14px;
+  }
+  #sim-modal h2 {
+    font-family: 'Bungee', sans-serif;
+    color: var(--neon-pink);
+    font-size: 18px;
+    margin: 0 0 10px;
+    letter-spacing: 1px;
+  }
+  #sim-modal h3 {
+    font-family: 'Bungee', sans-serif;
+    color: var(--neon-cyan);
+    font-size: 13px;
+    margin: 14px 0 6px;
+    letter-spacing: 1px;
+  }
+  #sim-modal .close-btn {
+    float: right;
+    background: transparent;
+    border: 1px solid var(--panel-border);
+    color: var(--dim);
+    font-family: 'VT323', monospace;
+    padding: 4px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  #sim-modal table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 6px;
+    font-size: 13px;
+  }
+  #sim-modal th, #sim-modal td {
+    text-align: left;
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--panel-border);
+  }
+  #sim-modal th { color: var(--neon-cyan); font-weight: normal; font-size: 12px; letter-spacing: 1px; }
+  #sim-modal td.ok { color: #5be35b; }
+  #sim-modal td.fail { color: #ff5a5a; }
+  #sim-modal pre {
+    background: #0c0815;
+    border: 1px solid var(--panel-border);
+    padding: 8px 10px;
+    border-radius: 6px;
+    margin: 4px 0;
+    font-size: 13px;
+    line-height: 1.4;
+    white-space: pre-wrap;
+  }
+  #sim-modal .scenario-block { margin-bottom: 16px; }
+
+  /* CRT scanlines (subtle) */
+  #phone::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      to bottom,
+      rgba(0,0,0,0) 0px,
+      rgba(0,0,0,0) 2px,
+      rgba(0,0,0,0.08) 3px
+    );
+    mix-blend-mode: multiply;
+    z-index: 5;
+  }
+</style>
+</head>
+<body>
+
+<div id="phone">
+  <div id="hud">
+    <div class="hud-row">
+      <span class="title" id="loc-title">ЛОКАЦИЯ 1 — АРЕНА 1/10</span>
+      <span class="value" id="coins-display">💰 0</span>
+    </div>
+    <div class="hud-row">
+      <span class="label" style="font-size:14px; min-width:24px;">HP</span>
+      <div class="hp-bar-bg">
+        <div class="hp-bar-fill" id="hero-hp-fill" style="width: 100%;"></div>
+        <div class="hp-bar-text" id="hero-hp-text">100 / 100</div>
+      </div>
+    </div>
+  </div>
+
+  <canvas id="game-canvas"></canvas>
+
+  <div id="skill-bar">
+    <div class="skill-btn empty" data-slot="0">
+      <div class="cd-overlay"></div>
+      <div class="name">—</div>
+      <div class="lvl"></div>
+      <div class="icon"></div>
+      <div class="cd-text"></div>
+      <div class="charges-bar"></div>
+    </div>
+    <div class="skill-btn empty" data-slot="1">
+      <div class="cd-overlay"></div>
+      <div class="name">—</div>
+      <div class="lvl"></div>
+      <div class="icon"></div>
+      <div class="cd-text"></div>
+      <div class="charges-bar"></div>
+    </div>
+    <div class="skill-btn empty" data-slot="2">
+      <div class="cd-overlay"></div>
+      <div class="name">—</div>
+      <div class="lvl"></div>
+      <div class="icon"></div>
+      <div class="cd-text"></div>
+      <div class="charges-bar"></div>
+    </div>
+  </div>
+
+  <button id="hub-btn">🏠 ХАБ</button>
+
+  <div id="defeat-overlay">
+    <h1>ПОРАЖЕНИЕ</h1>
+    <button id="defeat-restart">В ХАБ</button>
+  </div>
+
+  <div id="victory-overlay">
+    <h1>ПОБЕДА!</h1>
+    <div id="victory-text" style="color:var(--text); font-size:18px; text-align:center; padding:0 16px;"></div>
+    <button id="victory-next">В ХАБ</button>
+  </div>
+
+  <!-- Хаб (отдельный экран) -->
+  <div id="hub-scene">
+    <div id="hub-hud">
+      <div class="row">
+        <span class="loc-info" id="hub-loc-info">ЛОКАЦИЯ 1</span>
+        <span class="coins" id="hub-coins">💰 0</span>
+      </div>
+      <div class="row">
+        <span class="energy" id="hub-energy-text">⚡ 100/100</span>
+        <span style="color:var(--dim); font-size:13px;" id="hub-energy-rate">+1/5мин</span>
+      </div>
+      <div class="energy-bar"><div class="energy-fill" id="hub-energy-fill" style="width:100%"></div></div>
+    </div>
+    <!-- Главный экран хаба -->
+    <div id="hub-home" class="hub-screen active">
+      <div class="sub-body">
+        <h2 class="section">СТАТЫ ГЕРОЯ</h2>
+        <div id="stats-panel" class="stats-panel"></div>
+        <h2 class="section">ЗДАНИЯ</h2>
+        <div id="buildings-grid"></div>
+      </div>
+      <button id="leave-hub">НА УЛИЦУ →</button>
+    </div>
+
+    <!-- Качалка -->
+    <div id="hub-gym" class="hub-screen">
+      <div class="sub-header">
+        <button class="back-btn" data-back>← Назад</button>
+        <span class="title">🏋️ КАЧАЛКА</span>
+      </div>
+      <div class="sub-body">
+        <div id="trainers-list"></div>
+      </div>
+    </div>
+
+    <!-- Гача -->
+    <div id="hub-gacha" class="hub-screen">
+      <div class="sub-header">
+        <button class="back-btn" data-back>← Назад</button>
+        <span class="title">🎰 ГАЧА АВТОМАТ</span>
+      </div>
+      <div class="sub-body">
+        <div id="gacha-block">
+          <div class="gacha-header">
+            <span>🎰 Жетоны (с боссов):</span>
+            <span class="tokens" id="gacha-tokens">0</span>
+          </div>
+          <div id="gacha-strip"></div>
+          <div id="gacha-result"></div>
+          <button id="gacha-spin">КРУТИТЬ</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Арсенал -->
+    <div id="hub-arsenal" class="hub-screen">
+      <div class="sub-header">
+        <button class="back-btn" data-back>← Назад</button>
+        <span class="title">🥋 АРСЕНАЛ</span>
+      </div>
+      <div class="sub-body">
+        <h2 class="section">ЛОАДАУТ (3 СЛОТА)</h2>
+        <div class="loadout-slots" id="loadout-slots"></div>
+        <h2 class="section">СКИЛЛЫ</h2>
+        <div class="loadout-pool" id="loadout-pool"></div>
+      </div>
+    </div>
+
+    <!-- Гардероб -->
+    <div id="hub-wardrobe" class="hub-screen">
+      <div class="sub-header">
+        <button class="back-btn" data-back>← Назад</button>
+        <span class="title">👕 ГАРДЕРОБ</span>
+      </div>
+      <div class="sub-body">
+        <div id="wardrobe-tabs"></div>
+        <div id="wardrobe-equipped" class="ward-section"></div>
+        <div id="wardrobe-inventory" class="ward-section"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Тап-тайминг -->
+  <div id="tap-overlay">
+    <div class="header">
+      <div class="title" id="tap-title">🏋️ ШТАНГА</div>
+      <button id="tap-exit">Выйти</button>
+    </div>
+    <div class="info">
+      <span class="energy" id="tap-energy">⚡ 100/100</span>
+      <span class="counter" id="tap-counter">💪 0%</span>
+      <span style="color:var(--dim);" id="tap-tier">Тир 1 — 1 XP</span>
+    </div>
+    <div class="tap-xp-row">
+      <div class="xp-text">
+        <span id="tap-xp-text">XP 0/30</span>
+        <span class="lvl" id="tap-xp-level">ур. 1</span>
+      </div>
+      <div id="tap-xp-bar"><div id="tap-xp-fill" style="width:0%"></div></div>
+    </div>
+    <div id="tap-bar-wrap">
+      <div id="tap-bar">
+        <div class="zone red"    id="zone-rl" style="left:0%; width:25%;"></div>
+        <div class="zone yellow" id="zone-yl" style="left:25%; width:15%;"></div>
+        <div class="zone green"  id="zone-g"  style="left:30%; width:40%;"></div>
+        <div class="zone yellow" id="zone-yr" style="left:60%; width:15%;"></div>
+        <div class="zone red"    id="zone-rr" style="left:75%; width:25%;"></div>
+        <div class="cursor"      id="tap-cursor" style="left:0%;"></div>
+      </div>
+    </div>
+    <div id="tap-feedback"></div>
+    <button id="tap-btn">ТАП</button>
+  </div>
+</div>
+
+<div id="devpanel">
+  <h2>DEV (этап 1)</h2>
+  <div class="note">Полная дев-панель — этап 4. Пока — базовые кнопки.</div>
+  <button id="dev-reset-loc">Сбросить локацию</button>
+  <button id="dev-next-loc">Следующая локация</button>
+  <button id="dev-heal">Восстановить HP</button>
+  <button id="dev-kill-all">Убить всех на арене</button>
+  <button id="dev-unlock-all">Открыть все скиллы</button>
+  <button id="dev-go-hub">В хаб</button>
+  <button id="dev-rage-fill">+100 зарядов Ярости</button>
+  <button id="dev-energy">+100 энергии</button>
+  <button id="dev-coins">+5000 монет</button>
+  <button id="dev-shards">+10 шардов всем скиллам</button>
+  <button id="dev-gacha-token">+1 жетон гачи</button>
+  <button id="dev-epic-item">+1 случайный эпик</button>
+  <button id="dev-sim">📊 Симулятор боя</button>
+  <button id="dev-stat-levels">+10 уровней статам</button>
+  <button id="dev-reset-progress">Сбросить прогрессию</button>
+  <h2 style="margin-top:14px;">Лог боя</h2>
+  <div id="log"></div>
+</div>
+
+<!-- Simulator modal -->
+<div id="sim-modal">
+  <div class="panel">
+    <button class="close-btn" id="sim-close">✕ закрыть</button>
+    <h2>📊 Симулятор боя</h2>
+    <div id="sim-output"></div>
+  </div>
+</div>
+
+<script type="module" src="core/game.js"></script>
+</body>
+</html>

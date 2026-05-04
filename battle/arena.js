@@ -1,0 +1,133 @@
+// Генерация локации: цепочка [arena, corridor, arena, corridor, ..., bossArena]
+// Все рендерится в мировых координатах (worldX, worldY). Камера переводит мир в экран.
+
+import { ARENA } from '../balance/visuals.js';
+import {
+  arenasForLocation, rollArenaComposition,
+  ENEMY_BASE, ELITE_BASE, SCALING, BOSS_BASE,
+} from '../balance/enemies.js';
+
+export function buildLocation(locationIndex) {
+  const arenas = [];
+  const corridors = [];
+  let cursorY = 0;
+
+  const arenaW = ARENA.arenaWidth;
+  const arenaH = ARENA.arenaHeight;
+  const centerX = 0;
+  const arenasPerLocation = arenasForLocation(locationIndex);
+
+  for (let i = 1; i <= arenasPerLocation; i++) {
+    const top = cursorY;
+    const bottom = cursorY + arenaH;
+    const arena = {
+      index: i,
+      x: centerX - arenaW / 2,
+      y: top,
+      w: arenaW,
+      h: arenaH,
+      composition: rollArenaComposition(i, locationIndex),
+      cleared: false,
+      activated: false,
+      entryPoint: { x: centerX, y: top + 30 },
+      exitPoint: { x: centerX, y: bottom - 30 },
+      centerPoint: { x: centerX, y: (top + bottom) / 2 },
+    };
+    arenas.push(arena);
+    cursorY = bottom;
+
+    if (i < arenasPerLocation) {
+      corridors.push({
+        x: centerX - ARENA.corridorWidth / 2,
+        y: cursorY,
+        w: ARENA.corridorWidth,
+        h: ARENA.corridorLength,
+        startPoint: { x: centerX, y: cursorY },
+        endPoint:   { x: centerX, y: cursorY + ARENA.corridorLength },
+      });
+      cursorY += ARENA.corridorLength;
+    }
+  }
+
+  return {
+    locationIndex,
+    arenas,
+    corridors,
+    totalHeight: cursorY,
+    width: arenaW,
+  };
+}
+
+export function scaleStat(baseValue, locationIndex, arenaIndex) {
+  return baseValue
+    * Math.pow(SCALING.perWaveMultiplier, arenaIndex - 1)
+    * Math.pow(SCALING.perLocationMultiplier, locationIndex - 1);
+}
+
+// Возвращает массив "шаблонов" врагов для арены — итерируется по composition.units.
+// Каждый юнит может иметь scaleHp/scaleDmg/scaleRadius — применяются поверх обычного скейлинга.
+export function spawnPlanForArena(arena, locationIndex) {
+  const out = [];
+  for (const u of arena.composition.units) {
+    for (let i = 0; i < u.count; i++) {
+      out.push(buildEnemyTemplate(u, locationIndex, arena.index));
+    }
+  }
+  return out;
+}
+
+function buildEnemyTemplate(unit, locationIndex, arenaIndex) {
+  const sHp  = unit.scaleHp     ?? 1;
+  const sDmg = unit.scaleDmg    ?? 1;
+  const sR   = unit.scaleRadius ?? 1;
+
+  if (unit.kind === 'boss') {
+    const regularHp  = scaleStat(ENEMY_BASE.baseHp,     locationIndex, arenaIndex);
+    const regularDmg = scaleStat(ENEMY_BASE.baseDamage, locationIndex, arenaIndex);
+    return {
+      kind: 'boss',
+      name: BOSS_BASE.name,
+      hp: regularHp * BOSS_BASE.hpMultiplier * sHp,
+      damage: regularDmg * BOSS_BASE.damageMultiplier * sDmg,
+      attackSpeed: BOSS_BASE.baseAttackSpeed,
+      moveSpeed: BOSS_BASE.moveSpeed,
+      bodyRadius: BOSS_BASE.bodyRadius * sR,
+      color: BOSS_BASE.color,
+      coinDrop: BOSS_BASE.baseCoinDrop * locationIndex,
+    };
+  }
+  if (unit.kind === 'elite') {
+    return {
+      kind: 'elite',
+      name: ELITE_BASE.name,
+      hp: scaleStat(ELITE_BASE.baseHp, locationIndex, arenaIndex) * sHp,
+      damage: scaleStat(ELITE_BASE.baseDamage, locationIndex, arenaIndex) * sDmg,
+      attackSpeed: ELITE_BASE.baseAttackSpeed,
+      moveSpeed: ELITE_BASE.moveSpeed,
+      bodyRadius: ELITE_BASE.bodyRadius * sR,
+      color: ELITE_BASE.color,
+      coinDrop: ELITE_BASE.baseCoinDrop * locationIndex,
+    };
+  }
+  // regular
+  return {
+    kind: 'regular',
+    name: ENEMY_BASE.name,
+    hp: scaleStat(ENEMY_BASE.baseHp, locationIndex, arenaIndex) * sHp,
+    damage: scaleStat(ENEMY_BASE.baseDamage, locationIndex, arenaIndex) * sDmg,
+    attackSpeed: ENEMY_BASE.baseAttackSpeed,
+    moveSpeed: ENEMY_BASE.moveSpeed,
+    bodyRadius: ENEMY_BASE.bodyRadius * sR,
+    color: ENEMY_BASE.color,
+    coinDrop: ENEMY_BASE.baseCoinDrop * locationIndex,
+  };
+}
+
+export function randomSpawnPos(arena) {
+  const pad = ARENA.enemySpawnPadding;
+  const x = arena.x + pad + Math.random() * (arena.w - pad * 2);
+  const yMin = arena.y + arena.h * 0.35;
+  const yMax = arena.y + arena.h - pad;
+  const y = yMin + Math.random() * (yMax - yMin);
+  return { x, y };
+}

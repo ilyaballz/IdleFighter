@@ -2,7 +2,10 @@
 
 import { ARENA } from '../balance/visuals.js';
 import { SKILLS } from '../balance/skills.js';
-import { buildLocation } from '../battle/arena.js';
+import { buildLocation, buildBarLocation } from '../battle/arena.js';
+import {
+  barState, recoverTickets, spendTicket, awardMedal,
+} from './bar_state.js';
 import {
   createHero, updateBattle, HERO_STATE, activateSkill,
 } from '../battle/battle.js';
@@ -15,12 +18,13 @@ import {
   showHubScene, renderHub, bindHubActions, bindCoinsAccessor,
   showTapOverlay, hideTapOverlay,
   renderTapStatic, renderTapDynamic, flashTapFeedback, bindTapButton,
-  spawnXpFly, startGachaSpin,
+  spawnXpFly, startGachaSpin, showPerkChoiceOverlay,
 } from '../hub/ui.js';
 import {
   hubState, recoverEnergy, recoverGreenZones,
   tryUpgradeTrainer, startTrainingSession, endTrainingSession,
   updateSession as updateHubSession, performTap,
+  getEffectiveEnergyMax, tryUpgradeHome,
 } from '../hub/state.js';
 import { resetHeroForNewRun, addStatXp } from './stats_layer.js';
 import { loadoutState, addGachaToken, rollShardDropForEnemy } from './loadout.js';
@@ -41,11 +45,21 @@ const world = {
   hero: null,
   location: null,
   camera: { x: 0, y: 0 },
+  projectiles: [],            // активные projectiles от ranged-врагов (Молотов и т.п.)
   locationClearedFired: false,
   onEnemyKilled: (enemy) => {
+    if (enemy.kind === 'bar_boss') {
+      // Награда даётся в onBarVictory (медаль). Здесь — только лог.
+      logEvent(`БАР: ${enemy.name} повержен!`, 'kill');
+      return;
+    }
     world.coins += enemy.coinDrop;
     if (enemy.kind === 'boss') {
-      logEvent(`БОСС повержен! +${enemy.coinDrop}💰`, 'kill');
+      const reward = enemy.energyReward || 0;
+      if (reward > 0) {
+        hubState.energy = Math.min(getEffectiveEnergyMax(), hubState.energy + reward);
+      }
+      logEvent(`БОСС повержен! +${enemy.coinDrop}💰${reward > 0 ? ` +${reward}⚡` : ''}`, 'kill');
     } else {
       logEvent(`${enemy.name} убит (+${enemy.coinDrop}💰)`, 'kill');
     }
@@ -69,6 +83,10 @@ function enterHub() {
   showHubScene();
   endTrainingSession();
   hideTapOverlay();
+  // Если после боя в баре открылся выбор перка — сразу показать оверлей.
+  if (barState.pendingChoice) {
+    setTimeout(() => showPerkChoiceOverlay(), 100);
+  }
 }
 
 function enterBattle(locationIndex) {
@@ -78,9 +96,46 @@ function enterBattle(locationIndex) {
   startLocation(locationIndex);
 }
 
+function enterBarFight() {
+  if (!spendTicket()) {
+    logEvent('Нет билетов на спарринг', 'warn');
+    renderHub();
+    return;
+  }
+  scene = 'battle';
+  showBattleScene();
+  fitCanvas();
+  startBarFight();
+}
+
+function startBarFight() {
+  // Уровень бар-босса = число побед + 1. С каждой победой следующий босс становится сильнее.
+  const bossLevel = barState.medals + 1;
+  world.location = buildBarLocation(bossLevel);
+  world.locationClearedFired = false;
+  world.projectiles = [];
+  resetHeroForNewRun();
+  resetFx();
+  const arena = world.location.arenas[0];
+  world.hero = createHero({
+    x: arena.entryPoint.x,
+    y: arena.y - 80,
+  });
+  world.hero.targetArenaIndex = 1;
+  world.hero.state = HERO_STATE.MOVING_TO_NEXT_ARENA;
+  defeatShown = false;
+  hideDefeat();
+  hideVictory();
+  const rect = canvas.getBoundingClientRect();
+  world.camera.x = world.hero.x - rect.width / 2;
+  world.camera.y = world.hero.y - rect.height / 2;
+  logEvent(`=== Спарринг в баре (босс ур. ${bossLevel}) ===`);
+}
+
 function startLocation(locationIndex) {
   world.location = buildLocation(locationIndex);
   world.locationClearedFired = false;
+  world.projectiles = [];
   resetHeroForNewRun();
   resetFx();
   const firstArena = world.location.arenas[0];
@@ -100,12 +155,25 @@ function startLocation(locationIndex) {
 }
 
 function onLocationVictory() {
+  if (world.location?.kind === 'bar') {
+    onBarVictory();
+    return;
+  }
   const cleared = world.location.locationIndex;
   addGachaToken(1);
   logEvent(`+1 жетон гачи!`, 'crit');
   hubState.currentLocationIndex = cleared + 1;
   showVictory(`Локация ${cleared} зачищена!\n+1 жетон гачи (крутить в хабе)`);
   logEvent(`=== Локация ${cleared} зачищена ===`, 'kill');
+}
+
+function onBarVictory() {
+  const choiceOpened = awardMedal();
+  logEvent(`БАР: победа! +1 медаль (всего ${barState.medals})`, 'crit');
+  showVictory(
+    `Спарринг выигран!\n+1 🏅 медаль (всего ${barState.medals})` +
+    (choiceOpened ? `\n\n✨ Откроется выбор перка в хабе` : '')
+  );
 }
 
 // ───────── Resize / Camera ─────────
@@ -146,6 +214,7 @@ function tick() {
 
   recoverEnergy(dt);
   recoverGreenZones(dt);
+  recoverTickets(dt);
 
   if (scene === 'battle' && world.location && world.hero) {
     updateBattle(world, dt);
@@ -202,6 +271,22 @@ bindHubActions({
       logEvent('Не хватает монет на апгрейд', 'warn');
     }
   },
+  onHomeUpgrade: (buildingId) => {
+    const ok = tryUpgradeHome(buildingId, (cost) => {
+      if (world.coins < cost) return false;
+      world.coins -= cost;
+      return true;
+    });
+    if (ok) {
+      logEvent(`Дом прокачан: ${buildingId}`, 'kill');
+      renderHub();
+    } else {
+      logEvent('Не хватает монет на апгрейд дома', 'warn');
+    }
+  },
+  onBarFight: () => {
+    enterBarFight();
+  },
 });
 
 bindTapButton(() => {
@@ -241,17 +326,33 @@ document.getElementById('defeat-restart').addEventListener('click', () => enterH
 document.getElementById('victory-next').addEventListener('click', () => enterHub());
 
 // ───────── Дев-панель ─────────
-// Включается через ?dev=1 в URL. Без этого параметра кнопки не привязываются и скрыты CSS-ом.
+// Включается через ?dev=1 в URL или через кнопку 🛠 DEV рядом с ХАБ.
+// bindDevPanel вешает обработчики только при первом включении (lazy).
 
-const devMode = new URLSearchParams(location.search).get('dev') === '1';
-if (devMode) {
-  document.body.classList.add('dev-mode');
+let devPanelBound = false;
+function ensureDevPanelBound() {
+  if (devPanelBound) return;
   bindDevPanel({
     world,
     getScene: () => scene,
     enterHub,
     startLocation,
   });
+  devPanelBound = true;
+}
+
+function setDevMode(on) {
+  document.body.classList.toggle('dev-mode', on);
+  document.getElementById('dev-toggle-btn').classList.toggle('active', on);
+  if (on) ensureDevPanelBound();
+}
+
+document.getElementById('dev-toggle-btn').addEventListener('click', () => {
+  setDevMode(!document.body.classList.contains('dev-mode'));
+});
+
+if (new URLSearchParams(location.search).get('dev') === '1') {
+  setDevMode(true);
 }
 
 // ───────── Старт ─────────

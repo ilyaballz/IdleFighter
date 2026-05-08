@@ -6,12 +6,11 @@ import { getEffectiveStat, heroState, resetAllProgression } from './stats_layer.
 import { loadoutState, addShard, addGachaToken, unlockAll } from './loadout.js';
 import { inventoryState, addItem, rollBossDrop, resetInventory } from './inventory.js';
 import { hubState, resetHubState } from '../hub/state.js';
+import { resetBarState } from './bar_state.js';
 import { renderHub } from '../hub/ui.js';
 import { logEvent } from './logger.js';
 import {
-  buildCurrentScenario, buildScenarioWithoutEquip,
-  buildScenarioWithoutTrainers, buildBareScenario,
-  compareScenarios,
+  buildCurrentScenario, compareScenarios, runProgressionRange,
 } from './simulator.js';
 
 const $ = (id) => document.getElementById(id);
@@ -94,6 +93,7 @@ export function bindDevPanel(ctx) {
   $('dev-reset-progress').addEventListener('click', () => {
     resetAllProgression();
     resetHubState();
+    resetBarState();
     for (const id of Object.keys(SKILLS)) {
       loadoutState.levels[id] = 1;
       loadoutState.shards[id] = 0;
@@ -108,13 +108,8 @@ export function bindDevPanel(ctx) {
 }
 
 function runSimulator() {
-  const scenarios = [
-    buildCurrentScenario(),
-    buildScenarioWithoutEquip(),
-    buildScenarioWithoutTrainers(),
-    buildBareScenario(),
-  ];
-  const reports = compareScenarios(scenarios, 1, 15);
+  const reports = compareScenarios([buildCurrentScenario()], 1, 15);
+  reports.push(runProgressionRange(1, 15));
   renderSimReport(reports);
   $('sim-modal').classList.add('show');
 }
@@ -139,8 +134,8 @@ function renderSimReport(reports) {
     const stats = rep.results[0]?.stats;
     const dps = rep.results[0]?.dps;
     if (!stats || !dps) continue;
-    const totalSingle = (dps.autoDps + dps.skillDpsSingle).toFixed(1);
-    const totalAoe = dps.skillDpsAoe.toFixed(1);
+    const totalSingle = (dps.autoDps * dps.rageMultAuto + dps.skillDpsSingle * dps.rageMultSkill).toFixed(1);
+    const totalAoe = (dps.skillDpsAoe * dps.rageMultSkill).toFixed(1);
     const maxClear = rep.firstFail === null
       ? `${rep.results[rep.results.length - 1].locationLevel}+`
       : `${rep.firstFail - 1}`;
@@ -185,7 +180,8 @@ function renderSimReport(reports) {
   html += `<h3>ПРИМЕЧАНИЯ К МОДЕЛИ</h3>`;
   html += `<pre>• Модель — пиковый DPS, без учёта движения, кнокбэков и реальной AI-петли.
 • AoE-вклад умножается на min(N, 4) — приближение «среднего числа целей».
-• Скиллы charges/buff/heal (Ярость, Серия-бафф, Дыхание, Кровожадность-хил) пока в DPS не учтены.
+• Ярость учтена через uptime (greedy-каст при minCharges): множитель к auto и skill DPS.
+• Heal/buffOnUse/lifesteal (Дыхание, Серия-бафф, Кровожадность-LS) в DPS не учтены — они влияют на выживаемость, не на урон.
 • Уворот и защита считаются мультипликативно: incoming × (1−dodge) × (1−defense).
 • Регенерация HP в бою и между аренами учтены.
 • Используй разные сценарии чтобы оценить вклад эквипа/качалки в bottleneck.</pre>`;

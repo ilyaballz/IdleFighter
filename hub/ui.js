@@ -11,13 +11,21 @@ import {
 } from '../core/loadout.js';
 import {
   hubState, getTrainerInfo, computeZones,
+  getEffectiveEnergyMax, getEffectiveEnergyRegenPerSec,
+  getHomeBuildingInfo,
 } from './state.js';
+import { HOME_UPGRADES } from '../balance/home.js';
+import { BAR, PERKS_PER_CHOICE, findPerk } from '../balance/bar.js';
+import { barState, getNextTicketSec, takePerk } from '../core/bar_state.js';
 import { EQUIPMENT_SLOTS, RARITIES } from '../balance/equipment.js';
 import {
   inventoryState, equipItem, unequipSlot,
   getEquippedItemForSlot, getItemsForSlot,
 } from '../core/inventory.js';
-import { SKILL_ICONS, SKILL_SHORT_NAMES, describeSkill } from '../core/skill_meta.js';
+import {
+  SKILL_ICONS, SKILL_SHORT_NAMES,
+  describeSkillChips, describeSkillSynergies, synergyTone,
+} from '../core/skill_meta.js';
 import { logEvent } from '../core/logger.js';
 import { hideDefeat, hideVictory } from '../battle/ui.js';
 
@@ -64,7 +72,7 @@ export function showHubScene() {
 
 // ───────── Sub-screens ─────────
 
-const HUB_SCREENS = ['home', 'gym', 'gacha', 'arsenal', 'wardrobe'];
+const HUB_SCREENS = ['home', 'gym', 'arsenal', 'wardrobe', 'house', 'bar'];
 let currentHubScreen = 'home';
 
 export function showHubScreen(name) {
@@ -86,15 +94,19 @@ function refreshCurrentHubScreen() {
     case 'gym':
       renderTrainers();
       break;
-    case 'gacha':
-      renderGacha();
-      break;
     case 'arsenal':
       renderLoadoutSlots();
-      renderSkillsGrid();
+      renderGacha();
+      renderSkillDetails();
       break;
     case 'wardrobe':
       renderWardrobe();
+      break;
+    case 'house':
+      renderHouse();
+      break;
+    case 'bar':
+      renderBar();
       break;
   }
 }
@@ -121,11 +133,12 @@ let activeSlotIdx = null;
 export function renderHub() {
   $('hub-loc-info').textContent = `ЛОКАЦИЯ ${hubState.currentLocationIndex}`;
   $('hub-coins').textContent = `💰 ${currentCoins()}`;
-  const eMax = ENERGY.maxCap;
+  const eMax = getEffectiveEnergyMax();
   const eCur = Math.floor(hubState.energy);
   $('hub-energy-text').textContent = `⚡ ${eCur} / ${eMax}`;
   $('hub-energy-fill').style.width = `${(hubState.energy / eMax) * 100}%`;
-  const sec = 1 / ENERGY.recoverPerSec;
+  const regen = getEffectiveEnergyRegenPerSec();
+  const sec = regen > 0 ? 1 / regen : 0;
   $('hub-energy-rate').textContent = sec < 60
     ? `+1 / ${Math.round(sec)}с`
     : `+1 / ${Math.round(sec / 60)}мин`;
@@ -138,10 +151,12 @@ function renderBuildings() {
   const tokens = loadoutState.gachaTokens || 0;
   const buildings = [
     { id: 'gym', icon: '🏋️', name: 'КАЧАЛКА', hint: 'тренажёры и тапы' },
-    { id: 'gacha', icon: '🎰', name: 'ГАЧА',
-      hint: 'крутить скиллы',
+    { id: 'house', icon: '🏠', name: 'ДОМ', hint: 'апгрейды энергии' },
+    { id: 'bar', icon: '🍻', name: 'БАР', hint: barHubHint(),
+      cornerBadge: barState.pendingChoice ? '!' : (barState.tickets > 0 ? barState.tickets : null) },
+    { id: 'arsenal', icon: '🥋', name: 'АРСЕНАЛ',
+      hint: tokens > 0 ? `🎰 ${tokens} жетон.` : 'скиллы / лоадаут',
       cornerBadge: tokens > 0 ? tokens : null },
-    { id: 'arsenal', icon: '🥋', name: 'АРСЕНАЛ', hint: 'скиллы / лоадаут' },
     { id: 'wardrobe', icon: '👕', name: 'ГАРДЕРОБ',
       hint: `${inventoryState.items.length} предм.`,
       cornerBadge: inventoryState.items.length > 0 ? inventoryState.items.length : null },
@@ -189,8 +204,14 @@ function renderTrainers() {
     const card = document.createElement('div');
     card.className = 'trainer-card';
     const cost = info.nextTierCost;
-    const canTrain = hubState.energy >= ENERGY.trainerEntryCost;
+    const canTrain = !info.isLocked && hubState.energy >= ENERGY.trainerEntryCost;
     const canUpgrade = !info.isMaxTier && currentCoins() >= cost;
+    const upgradeLabel = info.isMaxTier
+      ? 'МАКС ТИР'
+      : info.isLocked
+        ? `КУПИТЬ (${cost}💰)`
+        : `Тир ${info.tier + 1} (${cost}💰)`;
+    const tierLabel = info.isLocked ? 'не куплен' : `Тир ${info.tier} · ${info.xpPerTap} XP/тап`;
     card.innerHTML = `
       <div class="head">
         <div>
@@ -203,13 +224,15 @@ function renderTrainers() {
       <div class="xp-bar"><div class="xp-fill" style="width:${(xp.current / xp.needed) * 100}%"></div></div>
       <div class="meta">
         <span>XP ${Math.floor(xp.current)}/${xp.needed}</span>
-        <span>Тир ${info.tier} · ${info.xpPerTap} XP/тап</span>
+        <span>${tierLabel}</span>
       </div>
       <div class="actions">
-        <button class="upgrade" ${canUpgrade ? '' : 'disabled'}>${
-          info.isMaxTier ? 'МАКС ТИР' : `Тир ${info.tier + 1} (${cost}💰)`
+        <button class="upgrade" ${canUpgrade ? '' : 'disabled'}>${upgradeLabel}</button>
+        <button class="primary train" ${canTrain ? '' : 'disabled'}>${
+          info.isLocked
+            ? '🔒 ЗАКРЫТ'
+            : `ТРЕНИРОВАТЬСЯ${ENERGY.trainerEntryCost > 0 ? ` (${ENERGY.trainerEntryCost}⚡)` : ''}`
         }</button>
-        <button class="primary train" ${canTrain ? '' : 'disabled'}>ТРЕНИРОВАТЬСЯ (${ENERGY.trainerEntryCost}⚡)</button>
       </div>
     `;
     card.querySelector('.upgrade').addEventListener('click', () => onTrainerUpgrade(stat));
@@ -220,9 +243,175 @@ function renderTrainers() {
 
 let onTrainerUpgrade = () => {};
 let onTrainerStart  = () => {};
+let onHomeUpgrade   = () => {};
+let onBarFight      = () => {};
 export function bindHubActions(handlers) {
   if (handlers.onTrainerUpgrade) onTrainerUpgrade = handlers.onTrainerUpgrade;
   if (handlers.onTrainerStart)   onTrainerStart   = handlers.onTrainerStart;
+  if (handlers.onHomeUpgrade)    onHomeUpgrade    = handlers.onHomeUpgrade;
+  if (handlers.onBarFight)       onBarFight       = handlers.onBarFight;
+}
+
+// ───────── Дом (апгрейды) ─────────
+
+function formatHomeValue(buildingId, value) {
+  if (buildingId === 'couch') {
+    // Показываем не множитель, а сколько секунд до полной батарейки.
+    // База: 1/6 ⚡/с при value=1 → 600c. value 2.5 → 240c.
+    const baseRecover = 1 / 6;
+    const cap = getEffectiveEnergyMax();
+    const sec = cap / (baseRecover * value);
+    return `${value}× (${Math.round(sec / 60)}мин до full)`;
+  }
+  if (buildingId === 'fridge') return `${value}/час`;
+  if (buildingId === 'trailer') return `${value}⚡`;
+  return String(value);
+}
+
+// ───────── Бар ─────────
+
+function formatTicketCountdown(sec) {
+  if (sec == null) return 'все билеты собраны';
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  if (m >= 1) return `следующий через ${m}мин ${s}с`;
+  return `следующий через ${s}с`;
+}
+
+function barHubHint() {
+  if (barState.pendingChoice) return 'выбор перка!';
+  return `${barState.tickets}/${BAR.maxTickets} билет.`;
+}
+
+function renderBar() {
+  const root = $('bar-info');
+  if (!root) return;
+  const ticketsHtml = [];
+  for (let i = 0; i < BAR.maxTickets; i++) {
+    const have = i < barState.tickets;
+    ticketsHtml.push(`<span class="ticket-icon${have ? '' : ' spent'}">🎟️</span>`);
+  }
+  const canFight = barState.tickets > 0;
+  const next = formatTicketCountdown(getNextTicketSec());
+  const pendingHtml = barState.pendingChoice
+    ? `<div class="pending-banner" id="bar-open-perk">🎁 Доступен выбор перка — открыть</div>`
+    : '';
+  root.innerHTML = `
+    <div class="row">
+      <span class="lbl">Билеты:</span>
+      <div class="tickets-display">${ticketsHtml.join('')}</div>
+    </div>
+    <div class="row">
+      <span class="lbl">Регенерация:</span>
+      <span class="next-ticket-text">${next}</span>
+    </div>
+    <div class="row">
+      <span class="lbl">Медалей собрано:</span>
+      <span class="val">🏅 ${barState.medals}</span>
+    </div>
+    <div class="row">
+      <span class="lbl">Следующий босс:</span>
+      <span class="val">ур. ${barState.medals + 1}</span>
+    </div>
+    <div class="row">
+      <span class="lbl">До след. перка:</span>
+      <span class="next-ticket-text">${PERKS_PER_CHOICE - (barState.medals % PERKS_PER_CHOICE)} побед</span>
+    </div>
+    ${pendingHtml}
+    <button class="fight-btn" id="bar-fight-btn" ${canFight ? '' : 'disabled'}>
+      ⚔️ В РИНГ (1 🎟️)
+    </button>
+  `;
+  $('bar-fight-btn').addEventListener('click', () => onBarFight());
+  if (barState.pendingChoice) {
+    $('bar-open-perk').addEventListener('click', showPerkChoiceOverlay);
+  }
+  renderOwnedPerks();
+}
+
+function renderOwnedPerks() {
+  const root = $('bar-perks-owned');
+  if (!root) return;
+  const owned = Object.entries(barState.ownedPerks);
+  if (owned.length === 0) {
+    root.innerHTML = `<h3>ПЕРКИ</h3><div style="color:var(--dim);font-size:13px;">Перков пока нет — бей боссов и копи медали.</div>`;
+    return;
+  }
+  const lines = owned.map(([id, count]) => {
+    const p = findPerk(id);
+    if (!p) return '';
+    return `<div class="perk-line">
+      <span class="icon">${p.icon}</span>
+      <span>${p.name}</span>
+      <span class="stack">×${count}</span>
+      <span class="desc">${p.desc}</span>
+    </div>`;
+  });
+  root.innerHTML = `<h3>ПЕРКИ (${owned.length})</h3>${lines.join('')}`;
+}
+
+export function showPerkChoiceOverlay() {
+  if (!barState.pendingChoice) return;
+  const overlay = $('perk-choice-overlay');
+  const cards = $('perk-choice-cards');
+  cards.innerHTML = '';
+  for (const id of barState.pendingChoice) {
+    const p = findPerk(id);
+    if (!p) continue;
+    const owned = barState.ownedPerks[id] || 0;
+    const card = document.createElement('div');
+    card.className = 'perk-card';
+    card.innerHTML = `
+      <div class="icon">${p.icon}</div>
+      <div class="name">${p.name}</div>
+      <div class="desc">${p.desc}</div>
+      ${owned > 0 ? `<div class="stack-note">уже взят ×${owned} (стэк)</div>` : ''}
+    `;
+    card.addEventListener('click', () => {
+      if (takePerk(id)) {
+        overlay.classList.remove('show');
+        renderHub();
+      }
+    });
+    cards.appendChild(card);
+  }
+  overlay.classList.add('show');
+}
+
+function renderHouse() {
+  const root = $('house-list');
+  if (!root) return;
+  root.innerHTML = '';
+  for (const buildingId of Object.keys(HOME_UPGRADES)) {
+    const info = getHomeBuildingInfo(buildingId);
+    const card = document.createElement('div');
+    card.className = 'trainer-card';
+    const canUpgrade = !info.isMaxTier && currentCoins() >= info.nextCost;
+    const curStr = formatHomeValue(buildingId, info.currentValue);
+    const nextStr = info.nextValue != null ? formatHomeValue(buildingId, info.nextValue) : '—';
+    card.innerHTML = `
+      <div class="head">
+        <div>
+          <span class="icon">${info.icon}</span> ${info.name.toUpperCase()}
+        </div>
+        <div class="level">тир ${info.tier}/${info.maxTier}</div>
+      </div>
+      <div class="bonus-desc">${info.desc}</div>
+      <div class="meta">
+        <span>сейчас: <span style="color:var(--neon-cyan)">${curStr}</span></span>
+        ${info.isMaxTier ? '' : `<span>далее: <span style="color:var(--neon-yellow)">${nextStr}</span></span>`}
+      </div>
+      <div class="actions">
+        <button class="upgrade primary" ${canUpgrade ? '' : 'disabled'}>${
+          info.isMaxTier ? 'МАКС ТИР' : `Прокачать (${info.nextCost}💰)`
+        }</button>
+      </div>
+    `;
+    if (!info.isMaxTier) {
+      card.querySelector('.upgrade').addEventListener('click', () => onHomeUpgrade(buildingId));
+    }
+    root.appendChild(card);
+  }
 }
 
 // ───────── Лоадаут / Арсенал ─────────
@@ -241,67 +430,116 @@ function renderLoadoutSlots() {
     div.addEventListener('click', () => {
       if (id) {
         setSlot(i, null);
+        selectedSkillId = id;
       } else {
         activeSlotIdx = (activeSlotIdx === i) ? null : i;
       }
       renderLoadoutSlots();
-      renderSkillsGrid();
+      rebuildGachaStrip();
+      renderSkillDetails();
     });
     root.appendChild(div);
   }
 }
 
-function renderSkillsGrid() {
-  const root = $('loadout-pool');
-  root.innerHTML = '';
+let selectedSkillId = null;
+
+function ensureSelected() {
+  if (selectedSkillId && SKILLS[selectedSkillId]) return;
+  for (const s of loadoutState.selected) if (s) { selectedSkillId = s; return; }
   for (const id of Object.keys(SKILLS)) {
-    const def = SKILLS[id];
-    const equipped = loadoutState.selected.includes(id);
-    const locked = !isUnlocked(id);
-    const lvl = getSkillLevel(id);
-    const shards = getSkillShards(id);
-    const upCost = getSkillUpgradeCost(id);
-    const card = document.createElement('div');
-    card.className = 'skill-card'
-                   + (equipped ? ' equipped' : '')
-                   + (locked ? ' locked' : '');
-    card.innerHTML = `
-      <div class="title">${SKILL_ICONS[id] || ''} ${def.name}</div>
-      <div class="meta">${def.activation === 'charges' ? 'заряды' : `КД ${def.baseCooldown}с`} · ур.${lvl}${locked ? ' · 🔒' : ''}</div>
-      <div class="desc">${describeSkill(id)}</div>
-      ${locked ? '' : `
-        <div class="shards-info">шарды: ${shards} / ${upCost}</div>
-        <button class="upgrade-btn" ${shards >= upCost ? '' : 'disabled'}>+1 ур.</button>
-      `}
-    `;
-    card.addEventListener('click', (ev) => {
-      if (ev.target.closest('.upgrade-btn')) return;
-      if (locked) return;
-      if (equipped) {
-        for (let i = 0; i < loadoutState.selected.length; i++) {
-          if (loadoutState.selected[i] === id) setSlot(i, null);
-        }
-      } else {
-        let target = activeSlotIdx;
-        if (target == null) target = loadoutState.selected.findIndex(s => !s);
-        if (target < 0) target = 0;
-        setSlot(target, id);
-        activeSlotIdx = null;
-      }
-      renderLoadoutSlots();
-      renderSkillsGrid();
-    });
-    const upBtn = card.querySelector('.upgrade-btn');
-    if (upBtn) {
-      upBtn.addEventListener('click', (ev) => {
-        ev.stopPropagation();
-        if (tryUpgradeSkill(id)) {
-          logEvent(`${def.name}: ур. ${getSkillLevel(id)}`, 'kill');
-          renderSkillsGrid();
-        }
-      });
+    if (loadoutState.unlocked.includes(id)) { selectedSkillId = id; return; }
+  }
+  selectedSkillId = Object.keys(SKILLS)[0];
+}
+
+function onGachaIconClick(id) {
+  selectedSkillId = id;
+  rebuildGachaStrip();
+  renderSkillDetails();
+}
+
+function toggleEquipSelected() {
+  const id = selectedSkillId;
+  if (!id || !isUnlocked(id)) return;
+  const equipped = loadoutState.selected.includes(id);
+  if (equipped) {
+    for (let i = 0; i < loadoutState.selected.length; i++) {
+      if (loadoutState.selected[i] === id) setSlot(i, null);
     }
-    root.appendChild(card);
+  } else {
+    let target = activeSlotIdx;
+    if (target == null) target = loadoutState.selected.findIndex(s => !s);
+    if (target < 0) target = 0;
+    setSlot(target, id);
+    activeSlotIdx = null;
+  }
+  renderLoadoutSlots();
+  rebuildGachaStrip();
+  renderSkillDetails();
+}
+
+function renderSkillDetails() {
+  const root = $('skill-details');
+  if (!root) return;
+  ensureSelected();
+  const id = selectedSkillId;
+  const def = SKILLS[id];
+  const locked = !isUnlocked(id);
+  const equipped = loadoutState.selected.includes(id);
+  const lvl = getSkillLevel(id);
+  const shards = getSkillShards(id);
+  const upCost = getSkillUpgradeCost(id);
+
+  const chips = describeSkillChips(id);
+  const synergies = describeSkillSynergies(id);
+
+  const chipsHtml = chips.map(c => `
+    <div class="stat-chip">
+      <div class="ic">${c.icon}</div>
+      <div class="val">${c.value}</div>
+      <div class="lbl">${c.label}</div>
+    </div>
+  `).join('');
+
+  const pillsHtml = synergies.map(text => `
+    <div class="synergy-pill ${synergyTone(text)}">${text}</div>
+  `).join('');
+
+  root.className = 'skill-card' + (equipped ? ' equipped' : '') + (locked ? ' locked' : '');
+  root.style.cursor = 'default';
+  root.innerHTML = `
+    <div class="title-row">
+      <div class="title">
+        ${SKILL_ICONS[id] || ''} ${def.name}
+        ${equipped ? '<span class="equipped-badge">· ✓ В ЛОАДАУТЕ</span>' : ''}
+      </div>
+      <div class="level-badge">ур.${lvl}${locked ? ' · 🔒' : ''}</div>
+    </div>
+    ${chips.length > 0 ? `<div class="stat-chips">${chipsHtml}</div>` : ''}
+    ${synergies.length > 0 ? `<div class="synergy-pills">${pillsHtml}</div>` : ''}
+    ${locked
+      ? `<div class="locked-note">Выпадает из гачи — крути жетоны, чтобы открыть.</div>`
+      : `
+        <div class="shards-info">шарды: ${shards} / ${upCost}</div>
+        <div class="skill-actions">
+          <button class="equip-btn${equipped ? ' unequip' : ''}">${equipped ? 'СНЯТЬ' : 'ЭКВИП'}</button>
+          <button class="upgrade-btn" ${shards >= upCost ? '' : 'disabled'}>+1 ур.</button>
+        </div>
+      `}
+  `;
+  const upBtn = root.querySelector('.upgrade-btn');
+  if (upBtn) {
+    upBtn.addEventListener('click', () => {
+      if (tryUpgradeSkill(id)) {
+        logEvent(`${def.name}: ур. ${getSkillLevel(id)}`, 'kill');
+        renderSkillDetails();
+      }
+    });
+  }
+  const eqBtn = root.querySelector('.equip-btn');
+  if (eqBtn) {
+    eqBtn.addEventListener('click', toggleEquipSelected);
   }
 }
 
@@ -325,7 +563,11 @@ function rebuildGachaStrip() {
   for (const id of ALL_SKILL_IDS) {
     const div = document.createElement('div');
     const isLocked = !loadoutState.unlocked.includes(id);
-    div.className = 'gacha-icon ' + (isLocked ? 'locked' : 'unlocked');
+    const isEquipped = loadoutState.selected.includes(id);
+    const isSelected = id === selectedSkillId;
+    div.className = 'gacha-icon ' + (isLocked ? 'locked' : 'unlocked')
+      + (isEquipped ? ' equipped' : '')
+      + (isSelected ? ' selected' : '');
     div.dataset.skillId = id;
     div.style.position = 'relative';
     div.innerHTML = `
@@ -335,7 +577,10 @@ function rebuildGachaStrip() {
     `;
     div.title = isLocked
       ? `${SKILLS[id].name} (закрыт)`
-      : `${SKILLS[id].name} — повтор: +${GACHA.duplicateShards} шардов`;
+      : isEquipped
+        ? `${SKILLS[id].name} (в лоадауте)`
+        : SKILLS[id].name;
+    div.addEventListener('click', () => onGachaIconClick(id));
     strip.appendChild(div);
   }
 }
@@ -382,6 +627,7 @@ function settleWinner(icons, targetIdx, result, onResult) {
     winEl.classList.add(result.type === 'unlock' ? 'winner-unlock' : 'winner-shards');
   }
   applyGachaResult(result);
+  selectedSkillId = result.skillId;
   const skill = SKILLS[result.skillId];
   if (result.type === 'unlock') {
     $('gacha-result').innerHTML = `🎉 <span style="color:var(--neon-yellow)">${skill.name.toUpperCase()}</span> ОТКРЫТ!`;
@@ -414,11 +660,10 @@ export function renderTapStatic() {
   const info = getTrainerInfo(s.stat);
   $('tap-title').textContent = `${info.icon} ${info.name.toUpperCase()}`;
   const z = computeZones(s.stat);
-  setZoneStyle('zone-rl', 0, z.yellowLeftStart);
-  setZoneStyle('zone-yl', z.yellowLeftStart, z.greenStart);
-  setZoneStyle('zone-g',  z.greenStart, z.greenEnd);
-  setZoneStyle('zone-yr', z.greenEnd, z.yellowRightEnd);
-  setZoneStyle('zone-rr', z.yellowRightEnd, z.total);
+  // Слои: красная всегда на всю ширину, жёлтая центрирована, зелёная центрирована (поверх).
+  setZoneStyle('zone-r', 0, z.total);
+  setZoneStyle('zone-y', z.yellowStart, z.yellowEnd);
+  setZoneStyle('zone-g', z.greenStart,  z.greenEnd);
   $('tap-tier').textContent = `Тир ${info.tier} — ${info.xpPerTap} XP`;
 }
 
@@ -435,7 +680,7 @@ export function renderTapDynamic() {
   if (!s) return;
   const cur = $('tap-cursor');
   cur.style.left = `${(s.cursor / TAP_BAR.totalWidth) * 100}%`;
-  $('tap-energy').textContent = `⚡ ${Math.floor(hubState.energy)} / ${ENERGY.maxCap}`;
+  $('tap-energy').textContent = `⚡ ${Math.floor(hubState.energy)} / ${getEffectiveEnergyMax()}`;
   const t = hubState.trainers[s.stat];
   const baseTotal = TAP_BAR.baseGreenWidth + TAP_BAR.baseYellowWidth;
   const curTotal = t.greenWidth + t.yellowWidth;
@@ -527,20 +772,30 @@ export function bindTapButton(onTap) {
 let currentWardrobeSlot = 'fists';
 
 const STAT_DISPLAY = {
-  damage:         { name: 'Урон',       fmt: (v) => `+${v}` },
-  critChance:     { name: 'Крит-шанс',  fmt: (v) => `+${(v * 100).toFixed(1)}%` },
-  critMultiplier: { name: 'Мул.крита',  fmt: (v) => `+${v.toFixed(2)}×` },
-  maxHp:          { name: 'Макс HP',    fmt: (v) => `+${v}` },
-  defense:        { name: 'Защита',     fmt: (v) => `+${(v * 100).toFixed(1)}%` },
-  attackSpeedPct: { name: 'Ск.атаки',   fmt: (v) => `+${(v * 100).toFixed(1)}%` },
-  dodgeChance:    { name: 'Уворот',     fmt: (v) => `+${(v * 100).toFixed(1)}%` },
-  skillCdrPct:    { name: 'CDR',        fmt: (v) => `+${(v * 100).toFixed(1)}%` },
+  damage:         { icon: '⚔', label: 'УРОН',     fmt: (v) => `+${v}` },
+  critChance:     { icon: '✨', label: 'КРИТ',     fmt: (v) => `+${(v * 100).toFixed(1)}%` },
+  critMultiplier: { icon: '💥', label: 'МУЛ.КРИТ', fmt: (v) => `+${v.toFixed(2)}×` },
+  maxHp:          { icon: '❤', label: 'HP',       fmt: (v) => `+${v}` },
+  defense:        { icon: '🛡', label: 'ЗАЩИТА',   fmt: (v) => `+${(v * 100).toFixed(1)}%` },
+  attackSpeedPct: { icon: '⚡', label: 'СК.АТК',   fmt: (v) => `+${(v * 100).toFixed(1)}%` },
+  dodgeChance:    { icon: '💨', label: 'УВОРОТ',   fmt: (v) => `+${(v * 100).toFixed(1)}%` },
+  skillCdrPct:    { icon: '⏳', label: 'CDR',      fmt: (v) => `+${(v * 100).toFixed(1)}%` },
 };
 
-function describeAffix(aff) {
+function primaryStatHtml(aff) {
   const meta = STAT_DISPLAY[aff.type];
-  if (!meta) return `${aff.type}: +${aff.value}`;
-  return `${meta.name}: ${meta.fmt(aff.value)}`;
+  const icon = meta?.icon || '?';
+  const label = meta?.label || aff.type.toUpperCase();
+  const val = meta ? meta.fmt(aff.value) : `+${aff.value}`;
+  return `<span class="primary-stat">${icon} ${val}<span class="unit">${label}</span></span>`;
+}
+
+function affixPillHtml(aff) {
+  const meta = STAT_DISPLAY[aff.type];
+  const icon = meta?.icon || '?';
+  const label = meta?.label || aff.type.toUpperCase();
+  const val = meta ? meta.fmt(aff.value) : `+${aff.value}`;
+  return `<span class="affix-pill"><span class="pill-icon">${icon}</span>${val}<span class="pill-label">${label}</span></span>`;
 }
 
 function renderItemCard(item, isEquipped) {
@@ -550,16 +805,18 @@ function renderItemCard(item, isEquipped) {
   div.className = 'item-card' + (isEquipped ? ' equipped' : '');
   div.dataset.itemId = item.id;
   div.style.borderColor = r.color;
-  const primaryDesc = describeAffix(item.primaryAffix);
-  const affixesHtml = item.affixes.map(aff =>
-    `<div class="affix">• ${describeAffix(aff)}</div>`
-  ).join('');
+  const affixesHtml = item.affixes.length
+    ? `<div class="affix-line">${item.affixes.map(affixPillHtml).join('')}</div>`
+    : '';
   div.innerHTML = `
     <div class="head">
       <span class="rarity-tag" style="color:${r.color}">${r.name.toUpperCase()}</span>
       ${isEquipped ? '<span class="equip-tag"></span>' : ''}
     </div>
-    <div class="primary"><b>${slot.name}</b> · <span class="val">${primaryDesc}</span></div>
+    <div class="slot-row">
+      <span class="icon">${slot.icon}</span>${slot.name}
+      ${primaryStatHtml(item.primaryAffix)}
+    </div>
     ${affixesHtml}
   `;
   return div;

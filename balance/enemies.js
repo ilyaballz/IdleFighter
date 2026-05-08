@@ -24,8 +24,40 @@ export const ELITE_BASE = {
   name: 'Байкер',
 };
 
+// Дальник — единственный пока ranged-враг. Бросает projectile (Молотов) с дистанции.
+// Не кайтит: подходит на attackRange и стоит, бросая, даже если герой подбежал в упор.
+export const RANGED_BASE = {
+  baseHp: 16,
+  baseDamage: 4,
+  baseAttackSpeed: 0.5,    // 1 бросок ~ каждые 2 секунды
+  moveSpeed: 70,
+  bodyRadius: 18,
+  attackRange: 220,        // на каком расстоянии встаёт и начинает бросать
+  baseCoinDrop: 3,
+  shardDropChance: 0.04,
+  equipmentDropChance: 0.06,
+  color: '#d97706',        // оранжевый — отличить от гопника
+  name: 'Дальник',
+};
+
+// Качок — медленный громила с замахом. Перед каждой атакой 1.5с готовится (красный ореол),
+// потом бьёт ОЧЕНЬ сильно. Knockdown отменяет замах. Уход из melee во время замаха = промах.
+export const HEAVY_BASE = {
+  baseHp: 80,
+  baseDamage: 12,           // ×3 базы elite — серьёзная угроза если попадёт
+  baseAttackSpeed: 0.4,
+  moveSpeed: 60,            // самый медленный
+  bodyRadius: 30,
+  windupDuration: 1.5,      // окно реакции для KD/уворота
+  baseCoinDrop: 10,
+  shardDropChance: 0.08,
+  equipmentDropChance: 0.15,
+  color: '#c0392b',         // тёмно-красный
+  name: 'Качок',
+};
+
 export const BOSS_BASE = {
-  hpMultiplier: 5.0,
+  hpMultiplier: 8.0,
   damageMultiplier: 2.0,
   baseAttackSpeed: 0.5,
   moveSpeed: 70,
@@ -33,13 +65,14 @@ export const BOSS_BASE = {
   baseCoinDrop: 50,
   shardDropChance: 1.0,
   equipmentDropChance: 1.0,
+  energyReward: 30,            // +⚡ в хабе при убийстве — гарантирует апгрейд после локации
   color: '#e63946',
   name: 'Босс',
 };
 
 export const SCALING = {
   perWaveMultiplier: 1.05,
-  perLocationMultiplier: 1.50,
+  perLocationMultiplier: 1.30,
 };
 
 export const LOCATION_STRUCTURE = {
@@ -48,12 +81,20 @@ export const LOCATION_STRUCTURE = {
   arenasGrowthPerLocation: 1,    // +1 арена за локацию
   maxArenasPerLocation: 15,
   enemiesPerArena: {
-    base: 3,
-    growthPerArena: 0.2,
-    cap: 4,
+    base: 2,                     // первая арена локации = 2 врага (ease-in)
+    growthPerArena: 0.2,         // дальше плавно растёт по аренам
+    // cap теперь функция от локации — см. regularEnemyCap(locationIndex).
   },
   eliteArenaInterval: 3,
 };
+
+// Cap количества регуляров на арене — растёт с локацией. base=2 + рост по аренам ограничен этим.
+// L1: лёгкое начало (3 макс). L2-3: стандарт (4). L4+: тяжелее (5).
+export function regularEnemyCap(locationIndex) {
+  if (locationIndex <= 1) return 3;
+  if (locationIndex <= 3) return 4;
+  return 5;
+}
 
 export function arenasForLocation(locationIndex) {
   return Math.min(
@@ -89,11 +130,26 @@ export const SPECIAL_ARENAS = {
       { kind: 'regular', count: 10, scaleHp: 0.5, scaleDmg: 0.7, scaleRadius: 0.8 },
     ],
   },
+  ranged_pack: {
+    label: 'дальники',
+    units: [
+      { kind: 'ranged',  count: 2 },
+      { kind: 'regular', count: 2, scaleHp: 0.7 },
+    ],
+  },
   mixed_pack: {
     label: 'банда',
     units: [
       { kind: 'elite',   count: 1 },
-      { kind: 'regular', count: 4 },
+      { kind: 'regular', count: 3 },
+      { kind: 'ranged',  count: 1 },
+    ],
+  },
+  heavy_pack: {
+    label: 'тяжёлая банда',
+    units: [
+      { kind: 'heavy',   count: 1 },
+      { kind: 'regular', count: 2 },
     ],
   },
   boss_with_minions: {
@@ -112,6 +168,8 @@ const ARENA_TYPE_LABELS = {
   elite: 'элита',
   mixed_pack: 'банда',
   swarm: 'рой',
+  ranged_pack: 'дальники',
+  heavy_pack: 'тяжёлая банда',
   regular: '',
 };
 
@@ -134,7 +192,7 @@ export function getArenaComposition(arenaIndex, locationIndex) {
     return { type: 'elite', units: [{ kind: 'elite', count: 1 }] };
   }
   const count = Math.min(
-    enemiesPerArena.cap,
+    regularEnemyCap(locationIndex),
     Math.ceil(enemiesPerArena.base + enemiesPerArena.growthPerArena * (arenaIndex - 1))
   );
   return { type: 'regular', units: [{ kind: 'regular', count }] };
@@ -142,17 +200,19 @@ export function getArenaComposition(arenaIndex, locationIndex) {
 
 // Бросает рандом — шанс заменить стандартную арену на спец-вариант.
 // Используется реальной игрой (buildLocation), не симулятором.
+// regular → swarm | ranged_pack (50/50). elite → mixed_pack | heavy_pack (50/50).
 const SPECIAL_REPLACEMENT = {
-  boss:    'boss_with_minions',
-  elite:   'mixed_pack',
-  regular: 'swarm',
+  boss:    () => 'boss_with_minions',
+  elite:   () => Math.random() < 0.5 ? 'mixed_pack' : 'heavy_pack',
+  regular: () => Math.random() < 0.5 ? 'swarm' : 'ranged_pack',
 };
 
 export function rollArenaComposition(arenaIndex, locationIndex) {
   const base = getArenaComposition(arenaIndex, locationIndex);
   const chance = specialSpawnChance(locationIndex);
   if (Math.random() >= chance) return base;
-  const replacementType = SPECIAL_REPLACEMENT[base.type];
-  if (!replacementType) return base;
+  const replacementFn = SPECIAL_REPLACEMENT[base.type];
+  if (!replacementFn) return base;
+  const replacementType = replacementFn();
   return { type: replacementType, units: SPECIAL_ARENAS[replacementType].units };
 }

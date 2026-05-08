@@ -41,13 +41,19 @@ export function drawWorld(ctx, world) {
 
   if (world.hero.pendingSlam) drawSlamMarker(ctx, world.hero.pendingSlam, world.timeNow);
 
+  if (world.projectiles && world.projectiles.length > 0) {
+    drawProjectiles(ctx, world.projectiles, world.timeNow);
+  }
+
   const currentArena = world.location.arenas[world.hero.targetArenaIndex - 1];
   if (currentArena && currentArena.enemies) {
     for (const e of currentArena.enemies) {
       if (!e.alive) continue;
       drawEnemy(ctx, e, world.timeNow);
       if (e.id === world.hero.currentTargetId) drawTargetMarker(ctx, e, world.timeNow);
-      if (e.dot) drawDotIndicator(ctx, e);
+      if (e.bleedStacks > 0) drawBleedIndicator(ctx, e);
+      else if (e.dot) drawDotIndicator(ctx, e);
+      if (e.markedUntil > world.timeNow) drawMarkedIndicator(ctx, e);
       drawHpBar(ctx, e);
     }
   }
@@ -57,6 +63,39 @@ export function drawWorld(ctx, world) {
   drawEffects(ctx, world.timeNow);
   drawDamageNumbers(ctx, world.timeNow);
   ctx.restore();
+}
+
+function drawProjectiles(ctx, projectiles, timeNow) {
+  for (const p of projectiles) {
+    if (!p.alive) continue;
+    const t = (timeNow - p.startTime) / p.duration;
+    const tClamped = Math.max(0, Math.min(1, t));
+    // Landing marker — пунктирный круг на точке приземления, заливка растёт по t.
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(p.targetX, p.targetY, p.landingRadius, 0, Math.PI * 2);
+    ctx.strokeStyle = p.color;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 4]);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(p.targetX, p.targetY, p.landingRadius * tClamped, 0, Math.PI * 2);
+    ctx.fillStyle = p.color;
+    ctx.globalAlpha = 0.18;
+    ctx.fill();
+    ctx.restore();
+    // Сам "коктейль" — точка с дугой по высоте (parabolic offset).
+    const arcHeight = -32 * Math.sin(Math.PI * tClamped); // отрицательный Y = вверх
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(p.x, p.y + arcHeight, 5, 0, Math.PI * 2);
+    ctx.fillStyle = p.color;
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+  }
 }
 
 function drawSlamMarker(ctx, ps, timeNow) {
@@ -81,6 +120,23 @@ function drawSlamMarker(ctx, ps, timeNow) {
 
 function drawEnemy(ctx, e, timeNow) {
   const flashing = e.hitFlashUntil > timeNow;
+  const knockedDown = e.knockdownUntil > timeNow;
+  const windingUp = e.windingUpUntil > timeNow;
+  ctx.save();
+  // Красный пульсирующий ореол замаха — отрисовывается ПОД спрайтом, чтобы не перекрывать.
+  if (windingUp) {
+    const pulse = 1 + Math.sin(timeNow * 14) * 0.12;
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, e.radius * 1.55 * pulse, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(220, 50, 50, 0.22)';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, e.radius * 1.25 * pulse, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255, 80, 80, 0.85)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+  if (knockedDown) ctx.globalAlpha = 0.55;
   ctx.beginPath();
   ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
   ctx.fillStyle = flashing ? FEEDBACK.hitFlash.color : e.color;
@@ -88,6 +144,16 @@ function drawEnemy(ctx, e, timeNow) {
   ctx.lineWidth = 2;
   ctx.strokeStyle = '#0a0612';
   ctx.stroke();
+  if (knockedDown) {
+    // Звёздочки над HP-баром (HP-бар на e.y - radius - 10, высота 4)
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#ffd23f';
+    ctx.font = '14px VT323, monospace';
+    ctx.textAlign = 'center';
+    const wobble = Math.sin(timeNow * 6) * 2;
+    ctx.fillText('★ ★ ★', e.x, e.y - e.radius - 16 + wobble);
+  }
+  ctx.restore();
 }
 
 function drawTargetMarker(ctx, e, timeNow) {
@@ -104,6 +170,24 @@ function drawDotIndicator(ctx, e) {
   ctx.arc(e.x + e.radius - 4, e.y - e.radius - 6, 3, 0, Math.PI * 2);
   ctx.fillStyle = '#5be35b';
   ctx.fill();
+}
+
+function drawBleedIndicator(ctx, e) {
+  ctx.save();
+  ctx.font = '14px VT323, monospace';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('🩸', e.x + e.radius + 2, e.y - e.radius - 4);
+  ctx.restore();
+}
+
+function drawMarkedIndicator(ctx, e) {
+  ctx.save();
+  ctx.font = '14px VT323, monospace';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('🎯', e.x - e.radius - 2, e.y - e.radius - 4);
+  ctx.restore();
 }
 
 function drawHpBar(ctx, e) {

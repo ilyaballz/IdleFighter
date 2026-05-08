@@ -1,7 +1,7 @@
 // Бой: state-машины героя/врагов, движение, автоатаки, формула урона, скиллы.
 
 import { getEffectiveStat, heroState } from '../core/stats_layer.js';
-import { spawnPlanForArena, randomSpawnPos } from './arena.js';
+import { spawnPlanForArena, randomSpawnPos, buildBarBossTemplate } from './arena.js';
 import { logEvent } from '../core/logger.js';
 import { SKILLS } from '../balance/skills.js';
 import { FEEDBACK } from '../balance/visuals.js';
@@ -66,16 +66,28 @@ export function createEnemyFromTemplate(template, pos) {
     attackSpeed: template.attackSpeed,
     moveSpeed: template.moveSpeed,
     coinDrop: template.coinDrop,
+    energyReward: template.energyReward || 0,
+    attackRange: template.attackRange || 0,         // 0 = melee (стандартное поведение)
+    windupDuration: template.windupDuration || 0,   // 0 = атакует мгновенно
+    windingUpUntil: 0,                              // мировое время — пока меньше, идёт замах
     state: ENEMY_STATE.IDLE,
     attackCooldown: 0,
     hitFlashUntil: 0,
     knockback: null,           // { vx, vy, until }
     dot: null,                 // { damagePerSec, expiresAt, nextTickAt, sourceSkill }
+    bleedStacks: 0,            // стаки bleed (cut). 0 = не кровит. Тег для синергий.
+    knockdownUntil: 0,         // мировое время — пока меньше, враг лежит, не двигается, не атакует
+    markedUntil: 0,            // мировое время — пока меньше, цель помечена (приоритет для skill-targeting)
     alive: true,
   };
 }
 
 export function spawnArenaEnemies(arena, locationIndex) {
+  // Спец-кейс: арена бара — один босс, отскейленный под уровень героя.
+  if (arena.barBossLevel != null) {
+    const tmpl = buildBarBossTemplate(arena.barBossLevel);
+    return [createEnemyFromTemplate(tmpl, randomSpawnPos(arena))];
+  }
   const plan = spawnPlanForArena(arena, locationIndex);
   const enemies = [];
   for (const tmpl of plan) {
@@ -98,6 +110,14 @@ export function getHeroAttackSpeedNow(hero) {
   let mult = 1;
   for (const b of hero.buffs) mult += (b.atkSpdBonusPct || 0);
   return Math.min(base * mult, 100); // safety cap
+}
+
+// Crit-шанс с учётом активных баффов (combo консумит теги → даёт critChanceBonus).
+// Баффы могут пробить базовый capCritChance, но не выше 0.95 — чтобы оставалось окно промаха.
+export function getHeroCritChanceNow(hero) {
+  let total = getEffectiveStat('critChance');
+  for (const b of hero.buffs) total += (b.critChanceBonus || 0);
+  return Math.min(total, 0.95);
 }
 
 export function isRageActive(hero) {
@@ -157,7 +177,8 @@ function clampInsideArena(ent, arena) {
 function rollChance(p) { return Math.random() < p; }
 
 function applyKnockback(enemy, fromX, fromY, dist, world) {
-  const effDist = enemy.kind === 'boss' ? dist * FEEDBACK.knockback.bossResist : dist;
+  const isBoss = enemy.kind === 'boss' || enemy.kind === 'bar_boss';
+  const effDist = isBoss ? dist * FEEDBACK.knockback.bossResist : dist;
   if (effDist <= 0) return;
   const dx = enemy.x - fromX;
   const dy = enemy.y - fromY;
@@ -171,9 +192,19 @@ function applyKnockback(enemy, fromX, fromY, dist, world) {
 }
 
 // knockbackDist — physical отброс (только AoE-скиллы передают >0).
-function dealDamage(enemy, amount, isCrit, fromX, fromY, world, knockbackDist = 0) {
-  if (!enemy.alive) return;
-  const finalAmount = Math.max(1, Math.round(amount));
+// def (опционально) — дефиниция скилла-источника. Если передана, dealDamage применяет
+// per-target бонусы синергий (bonusVsBleedingPct, bonusVsKnockedDownPct). Возвращает
+// фактически нанесённый урон (после бонусов и округления) — нужно вызывающему для
+// корректной агрегации (lifesteal, totalDmg в логе).
+function dealDamage(enemy, amount, isCrit, fromX, fromY, world, knockbackDist = 0, def = null) {
+  if (!enemy.alive) return 0;
+  let mult = 1;
+  if (def) {
+    if (def.bonusVsBleedingPct && (enemy.bleedStacks || 0) > 0) mult += def.bonusVsBleedingPct;
+    if (def.bonusVsKnockedDownPct && enemy.knockdownUntil > world.timeNow) mult += def.bonusVsKnockedDownPct;
+    if (def.bonusVsMarkedPct && enemy.markedUntil > world.timeNow) mult += def.bonusVsMarkedPct;
+  }
+  const finalAmount = Math.max(1, Math.round(amount * mult));
   enemy.hp -= finalAmount;
   enemy.hitFlashUntil = world.timeNow + FEEDBACK.hitFlash.duration;
   if (knockbackDist > 0) applyKnockback(enemy, fromX, fromY, knockbackDist, world);
@@ -181,13 +212,16 @@ function dealDamage(enemy, amount, isCrit, fromX, fromY, world, knockbackDist = 
   if (enemy.hp <= 0) {
     enemy.alive = false;
     enemy.dot = null;
+    enemy.bleedStacks = 0;
+    enemy.markedUntil = 0;
     world.onEnemyKilled?.(enemy);
   }
+  return finalAmount;
 }
 
 function heroAutoAttack(hero, enemy, world) {
   const dmg = getHeroDamageNow(hero);
-  const critChance = getEffectiveStat('critChance');
+  const critChance = getHeroCritChanceNow(hero);
   const isCrit = rollChance(critChance);
   const finalDmg = dmg * (isCrit ? getEffectiveStat('critMultiplier') : 1);
   dealDamage(enemy, finalDmg, isCrit, hero.x, hero.y, world);
@@ -198,20 +232,85 @@ function heroAutoAttack(hero, enemy, world) {
                               hero.rageCharges + SKILLS.rage.chargesPerAutoAttack);
 }
 
-function enemyAttackHero(enemy, hero, world) {
+// Универсальный проход урона по герою — используется и melee-атаками, и приземлением projectile.
+// Возвращает true, если урон прошёл (ложь — увернулся).
+function damageHero(damage, sourceName, hero, world) {
   const dodge = getEffectiveStat('dodgeChance');
   if (rollChance(dodge)) {
-    logEvent(`Уворот от ${enemy.name}`);
-    return;
+    logEvent(`Уворот от ${sourceName}`);
+    return false;
   }
   const def = getEffectiveStat('defense');
-  const finalDmg = Math.max(1, Math.round(enemy.damage * (1 - def)));
+  const finalDmg = Math.max(1, Math.round(damage * (1 - def)));
   heroState.currentHp -= finalDmg;
   hero.hitFlashUntil = world.timeNow + FEEDBACK.hitFlash.duration;
   if (heroState.currentHp <= 0) {
     heroState.currentHp = 0;
     hero.state = HERO_STATE.DEAD;
-    logEvent(`Герой пал. ${enemy.name} нанёс ${finalDmg}.`, 'warn');
+    logEvent(`Герой пал. ${sourceName} нанёс ${finalDmg}.`, 'warn');
+  }
+  return true;
+}
+
+function enemyAttackHero(enemy, hero, world) {
+  damageHero(enemy.damage, enemy.name, hero, world);
+}
+
+// Бросок projectile от ranged-врага. Snapshot позиции героя на момент броска —
+// projectile полетит туда, и приземлится на позиции мыши^W героя через PROJECTILE_DURATION.
+const PROJECTILE_DURATION = 0.6;
+const PROJECTILE_LANDING_RADIUS = 32;
+
+function rangedEnemyAttack(enemy, hero, world) {
+  if (!world.projectiles) world.projectiles = [];
+  world.projectiles.push({
+    sourceName: enemy.name,
+    damage: enemy.damage,
+    startX: enemy.x,
+    startY: enemy.y,
+    targetX: hero.x,         // snapshot позиции героя
+    targetY: hero.y,
+    x: enemy.x,              // текущая позиция (для рендера)
+    y: enemy.y,
+    startTime: world.timeNow,
+    duration: PROJECTILE_DURATION,
+    color: '#ff7e3e',
+    landingRadius: PROJECTILE_LANDING_RADIUS,
+    alive: true,
+  });
+}
+
+// Обновление projectile'ов: летят по прямой start→target за duration, на t≥1 проверяют
+// попадание (расстояние от landing-точки до героя ≤ landingRadius + heroRadius).
+function updateProjectiles(world, dt) {
+  const list = world.projectiles;
+  if (!list || list.length === 0) return;
+  const hero = world.hero;
+  for (const p of list) {
+    if (!p.alive) continue;
+    const t = (world.timeNow - p.startTime) / p.duration;
+    if (t >= 1) {
+      // Приземление — урон если герой в landing AoE.
+      const distToHero = Math.hypot(p.targetX - hero.x, p.targetY - hero.y);
+      if (distToHero <= p.landingRadius + hero.radius && hero.state !== HERO_STATE.DEAD) {
+        damageHero(p.damage, p.sourceName, hero, world);
+      }
+      // FX взрыва — расходящийся круг
+      spawnEffect({ type: 'expandingRing', x: p.targetX, y: p.targetY, fromRadius: 4,
+                    toRadius: p.landingRadius, color: p.color, lineWidth: 3, duration: 0.32 },
+                  world.timeNow);
+      spawnEffect({ type: 'pulse', x: p.targetX, y: p.targetY, radius: p.landingRadius * 0.7,
+                    color: p.color, alpha: 0.4, duration: 0.28 }, world.timeNow);
+      p.alive = false;
+    } else {
+      // Линейная интерполяция по полёту.
+      p.x = p.startX + (p.targetX - p.startX) * t;
+      p.y = p.startY + (p.targetY - p.startY) * t;
+    }
+  }
+  // Очистка мёртвых.
+  for (let i = list.length - 1; i >= 0; i--) {
+    if (!list[i].alive) list.splice(i, 1);
   }
 }
 
@@ -222,8 +321,13 @@ function skillCooldownAfterCdr(baseCd) {
   return baseCd * (1 - cdr);
 }
 
+// Level-scale множитель: 1× на lvl 1, +levelBonusPerLvl за каждый следующий уровень.
+function lvlMult(def, lvl) {
+  return 1 + (lvl - 1) * def.levelBonusPerLvl;
+}
+
 function skillDamageMultiplier(skillDef, level) {
-  return skillDef.baseDamageMultiplier * (1 + (level - 1) * skillDef.levelBonusPerLvl);
+  return skillDef.baseDamageMultiplier * lvlMult(skillDef, level);
 }
 
 function findNearestAliveEnemy(arena, fromX, fromY) {
@@ -236,6 +340,53 @@ function findNearestAliveEnemy(arena, fromX, fromY) {
     if (d < bestD) { best = e; bestD = d; }
   }
   return best;
+}
+
+function findFurthestAliveEnemy(arena, fromX, fromY) {
+  if (!arena || !arena.enemies) return null;
+  let best = null;
+  let bestD = -1;
+  for (const e of arena.enemies) {
+    if (!e.alive) continue;
+    const d = Math.hypot(e.x - fromX, e.y - fromY);
+    if (d > bestD) { best = e; bestD = d; }
+  }
+  return best;
+}
+
+function findMarkedAliveEnemy(arena, world) {
+  if (!arena || !arena.enemies) return null;
+  for (const e of arena.enemies) {
+    if (e.alive && e.markedUntil > world.timeNow) return e;
+  }
+  return null;
+}
+
+// Есть ли на враге хотя бы один тег синергии (bleed/KD/marked). Универсальный consumer
+// (combo) использует это для решения «усиливать ли бафф крит-чансом».
+function enemyHasAnyTag(enemy, world) {
+  return (enemy.bleedStacks || 0) > 0
+      || enemy.knockdownUntil > world.timeNow
+      || enemy.markedUntil > world.timeNow;
+}
+
+// Враги, чей центр попадает в полосу шириной width вдоль отрезка ax,ay → bx,by.
+function getEnemiesInLine(arena, ax, ay, bx, by, width) {
+  const out = [];
+  if (!arena || !arena.enemies) return out;
+  const dx = bx - ax, dy = by - ay;
+  const segLen2 = dx * dx + dy * dy;
+  if (segLen2 < 0.001) return out;
+  for (const e of arena.enemies) {
+    if (!e.alive) continue;
+    const ex = e.x - ax, ey = e.y - ay;
+    let t = (ex * dx + ey * dy) / segLen2;
+    if (t < 0) t = 0; else if (t > 1) t = 1;
+    const px = ax + dx * t, py = ay + dy * t;
+    const d = Math.hypot(e.x - px, e.y - py);
+    if (d <= width / 2 + e.radius) out.push(e);
+  }
+  return out;
 }
 
 function getEnemiesInRadius(arena, cx, cy, radius) {
@@ -267,13 +418,22 @@ export function activateSkill(hero, skillId, world) {
 
   const lvl = getSkillLevel(skillId);
   const arena = world.location.arenas[hero.targetArenaIndex - 1];
+  // Флаг для combo-style универсального consumer'а: если в case-обработке выяснилось,
+  // что цель имела активный тег (bleed/KD/marked), buffOnUse-блок ниже добавит
+  // critChanceBonusIfTagged в применяемый бафф.
+  let comboTaggedBonus = false;
 
   switch (def.targetType) {
     case 'single': {
       const target = findNearestAliveEnemy(arena, hero.x, hero.y);
       if (!target) return false;
+      // Снапшоты тегов: damage-бонусы применяет сам dealDamage по def, а здесь читаются
+      // для логирования и универсального combo-консумера (флаг comboTaggedBonus ниже).
+      const wasBleeding = (target.bleedStacks || 0) > 0;
+      const wasMarked = target.markedUntil > world.timeNow;
+      const targetHadAnyTag = enemyHasAnyTag(target, world);
       const dmgPerHit = getHeroDamageNow(hero) * skillDamageMultiplier(def, lvl);
-      const critChance = getEffectiveStat('critChance') + (def.bonusCritChance || 0);
+      const critChance = getHeroCritChanceNow(hero) + (def.bonusCritChance || 0);
       const hits = def.hits || 1;
       // FX по типу скилла (рендерится сразу для всех хитов)
       if (skillId === 'hook') {
@@ -314,18 +474,19 @@ export function activateSkill(hero, skillId, world) {
                       color: '#4fd6ff', lineWidth: 2, duration: 0.25 }, world.timeNow);
       }
 
+      const critMult = getEffectiveStat('critMultiplier');
       let totalDmg = 0;
       let critCount = 0;
       for (let i = 0; i < hits; i++) {
         if (!target.alive) break;
         const isCrit = rollChance(critChance);
-        const finalDmg = dmgPerHit * (isCrit ? getEffectiveStat('critMultiplier') : 1);
+        const finalDmg = dmgPerHit * (isCrit ? critMult : 1);
         if (isCrit) critCount++;
-        totalDmg += finalDmg;
-        dealDamage(target, finalDmg, isCrit, hero.x, hero.y, world);
+        totalDmg += dealDamage(target, finalDmg, isCrit, hero.x, hero.y, world, 0, def);
       }
       if (def.dot && target.alive) {
-        const dps = getHeroDamageNow(hero) * def.dot.damagePctPerSec;
+        target.bleedStacks = 1;   // бинарный тег "кровит"
+        const dps = getHeroDamageNow(hero) * def.dot.damagePctPerSec * lvlMult(def, lvl);
         target.dot = {
           damagePerSec: dps,
           expiresAt: world.timeNow + def.dot.durationSec,
@@ -333,8 +494,29 @@ export function activateSkill(hero, skillId, world) {
           sourceSkill: skillId,
         };
       }
+      // Marked applier (hook): помечает цель и стирает прошлые маркеры — приоритет всегда один.
+      if (def.appliesMarkedSec && target.alive) {
+        for (const e of arena.enemies) {
+          e.markedUntil = (e === target) ? world.timeNow + def.appliesMarkedSec : 0;
+        }
+      }
+      // Combo универсальный consumer: если цель имела любой тег — buffOnUse ниже усилится crit-чансом.
+      if (targetHadAnyTag && def.buffOnUse?.critChanceBonusIfTagged) {
+        comboTaggedBonus = true;
+      }
       const critTag = critCount === 0 ? '' : critCount === hits ? ' (всё криты!)' : ` (${critCount} крит)`;
-      logEvent(`${def.name}: ${Math.round(totalDmg)}${hits > 1 ? ` × ${hits}` : ''} по ${target.name}${critTag}`);
+      let tagSuffix = '';
+      if (def.dot && target.alive) {
+        tagSuffix += ' 🩸';
+      } else if (wasBleeding && def.bonusVsBleedingPct) {
+        tagSuffix += ` 🩸+${Math.round(def.bonusVsBleedingPct * 100)}%`;
+      }
+      if (def.appliesMarkedSec && target.alive) {
+        tagSuffix += ' 🎯';
+      } else if (wasMarked && def.bonusVsMarkedPct) {
+        tagSuffix += ` 🎯+${Math.round(def.bonusVsMarkedPct * 100)}%`;
+      }
+      logEvent(`${def.name}: ${Math.round(totalDmg)}${hits > 1 ? ` × ${hits}` : ''} по ${target.name}${critTag}${tagSuffix}`);
       break;
     }
     case 'aoe_around_self': {
@@ -350,19 +532,36 @@ export function activateSkill(hero, skillId, world) {
                     color: pulseColor, alpha: 0.4, duration: 0.32 }, world.timeNow);
 
       const baseDmg = getHeroDamageNow(hero) * skillDamageMultiplier(def, lvl);
+      const kdSec = def.knockdownSec ? def.knockdownSec * lvlMult(def, lvl) : 0;
+      const critChance = getHeroCritChanceNow(hero);
+      const critMult = getEffectiveStat('critMultiplier');
       let killed = 0;
       let totalDealt = 0;
+      let bleedDealt = 0;          // фактический урон по кровящим (для bonus-lifesteal в bloodlust)
+      let bleedHits = 0;
+      let kdHits = 0;              // сколько лежачих было в момент удара (для лога)
       for (const e of enemies) {
-        const isCrit = rollChance(getEffectiveStat('critChance'));
-        const fdmg = baseDmg * (isCrit ? getEffectiveStat('critMultiplier') : 1);
-        dealDamage(e, fdmg, isCrit, hero.x, hero.y, world, def.knockback || 0);
-        totalDealt += fdmg;
+        const wasBleeding = (e.bleedStacks || 0) > 0;
+        const wasKnockedDown = e.knockdownUntil > world.timeNow;
+        const isCrit = rollChance(critChance);
+        const fdmg = baseDmg * (isCrit ? critMult : 1);
+        const dealt = dealDamage(e, fdmg, isCrit, hero.x, hero.y, world, def.knockback || 0, def);
+        if (kdSec > 0 && e.alive) {
+          e.knockdownUntil = Math.max(e.knockdownUntil, world.timeNow + kdSec);
+        }
+        totalDealt += dealt;
+        if (wasBleeding) { bleedDealt += dealt; bleedHits++; }
+        if (wasKnockedDown) kdHits++;
         if (!e.alive) killed++;
       }
-      // Лайфстил для Кровожадности (с гарантированным минимумом, если minHealPct указан)
+      // Лайфстил для Кровожадности — per-enemy: с кровящих × bleedLifestealMultiplier.
+      // Ярость даёт общий ×lifestealMultiplierIfRage (применяется поверх всех ставок).
       if (def.lifestealPct || def.minHealPct) {
         const maxHp = getEffectiveStat('maxHp');
-        const lifestealAmt = totalDealt * (def.lifestealPct || 0);
+        const rageLsMult = (def.lifestealMultiplierIfRage && isRageActive(hero)) ? def.lifestealMultiplierIfRage : 1;
+        const baseLs = (def.lifestealPct || 0) * rageLsMult;
+        const bleedMult = def.bleedLifestealMultiplier || 1;
+        const lifestealAmt = (totalDealt - bleedDealt) * baseLs + bleedDealt * baseLs * bleedMult;
         const minHealAmt   = maxHp * (def.minHealPct || 0);
         const heal = Math.round(Math.max(lifestealAmt, minHealAmt));
         if (heal > 0) {
@@ -373,21 +572,29 @@ export function activateSkill(hero, skillId, world) {
         }
       }
       const healTag = def.lifestealPct ? ', +HP' : '';
-      logEvent(`${def.name}: задел ${enemies.length}${killed ? `, убито ${killed}` : ''}${healTag}`);
+      const bleedTag = (def.bleedLifestealMultiplier && bleedHits > 0)
+        ? ` (×${def.bleedLifestealMultiplier} 🩸 по ${bleedHits})` : '';
+      const kdTag = (def.bonusVsKnockedDownPct && kdHits > 0)
+        ? ` 💢+${Math.round(def.bonusVsKnockedDownPct * 100)}% × ${kdHits}` : '';
+      logEvent(`${def.name}: задел ${enemies.length}${killed ? `, убито ${killed}` : ''}${healTag}${bleedTag}${kdTag}`);
       break;
     }
     case 'aoe_landing': {
-      // Прыжок с задержкой. Точка приземления = позиция ближайшего врага сейчас (или герой).
-      const target = findNearestAliveEnemy(arena, hero.x, hero.y);
+      // Точка приземления: помеченная цель (если есть и prefersMarkedTarget), иначе ближайший враг.
+      let target = null;
+      if (def.prefersMarkedTarget) target = findMarkedAliveEnemy(arena, world);
+      if (!target) target = findNearestAliveEnemy(arena, hero.x, hero.y);
       const land = target ? { x: target.x, y: target.y } : { x: hero.x, y: hero.y };
+      const castDelay = def.castDelaySec
+        * ((def.castDelayMultIfRage && isRageActive(hero)) ? def.castDelayMultIfRage : 1);
       hero.pendingSlam = {
         x: land.x,
         y: land.y,
-        executeAt: world.timeNow + def.castDelaySec,
+        executeAt: world.timeNow + castDelay,
         skillId,
       };
-      hero.castUntil = world.timeNow + def.castDelaySec;
-      logEvent(`${def.name}: прыжок (${def.castDelaySec.toFixed(1)}с)`);
+      hero.castUntil = world.timeNow + castDelay;
+      logEvent(`${def.name}: прыжок (${castDelay.toFixed(1)}с)`);
       break;
     }
     case 'self_buff': {
@@ -398,11 +605,12 @@ export function activateSkill(hero, skillId, world) {
         const t = (c - def.minCharges) / (def.maxCharges - def.minCharges);
         durSec = def.minDurationSec + t * (def.maxDurationSec - def.minDurationSec);
       }
+      const rageLvlMult = lvlMult(def, lvl);
       hero.buffs.push({
         type: 'rage',
         endsAt: world.timeNow + durSec,
-        damageBonusPct: def.bonusDamagePct * (1 + (lvl - 1) * def.levelBonusPerLvl),
-        atkSpdBonusPct: def.bonusAttackSpeedPct * (1 + (lvl - 1) * def.levelBonusPerLvl),
+        damageBonusPct: def.bonusDamagePct * rageLvlMult,
+        atkSpdBonusPct: def.bonusAttackSpeedPct * rageLvlMult,
       });
       // FX: вспышка-взрыв оранжевого, кольцо
       spawnEffect({ type: 'pulse', x: hero.x, y: hero.y, radius: 50, color: '#ff7e3e',
@@ -412,9 +620,60 @@ export function activateSkill(hero, skillId, world) {
       logEvent(`${def.name}! +${Math.round(def.bonusDamagePct * 100)}% урона на ${durSec.toFixed(1)}с`, 'crit');
       break;
     }
+    case 'dash_line': {
+      // Цель рывка: помеченная (если есть и prefersMarkedTarget), иначе самый дальний.
+      let target = null;
+      if (def.prefersMarkedTarget) target = findMarkedAliveEnemy(arena, world);
+      if (!target) target = findFurthestAliveEnemy(arena, hero.x, hero.y);
+      if (!target) return false;
+      const startX = hero.x, startY = hero.y;
+      const dx = target.x - startX, dy = target.y - startY;
+      const dist = Math.hypot(dx, dy) || 0.001;
+      const nx = dx / dist, ny = dy / dist;
+      // Линия урона тянется ДО позиции target (включая её) — иначе сама цель
+      // не попадает в getEnemiesInLine из-за разрыва на stopGap.
+      const lineEndX = target.x;
+      const lineEndY = target.y;
+      // Герой останавливается перед target, не залезая внутрь.
+      const stopGap = target.radius + hero.radius + 4;
+      const heroEndX = startX + nx * Math.max(0, dist - stopGap);
+      const heroEndY = startY + ny * Math.max(0, dist - stopGap);
+      // Rage synergy: полоса рывка шире → больше врагов в линии.
+      const widthMult = (def.pathWidthMultiplierIfRage && isRageActive(hero)) ? def.pathWidthMultiplierIfRage : 1;
+      const effPathWidth = def.pathWidth * widthMult;
+      const enemies = getEnemiesInLine(arena, startX, startY, lineEndX, lineEndY, effPathWidth);
+      // FX: трасса до target, кольца на старте/финише героя
+      spawnEffect({ type: 'strike', fromX: startX, fromY: startY, toX: lineEndX, toY: lineEndY,
+                    color: '#ffd23f', duration: 0.22 }, world.timeNow);
+      spawnEffect({ type: 'expandingRing', x: startX, y: startY, fromRadius: 4, toRadius: 30,
+                    color: '#ffd23f', lineWidth: 3, duration: 0.32 }, world.timeNow);
+      spawnEffect({ type: 'expandingRing', x: target.x, y: target.y, fromRadius: 4, toRadius: 36,
+                    color: '#ffd23f', lineWidth: 3, duration: 0.32 }, world.timeNow);
+      const lm = lvlMult(def, lvl);
+      const baseDmg = getHeroDamageNow(hero);
+      const targetMult = def.baseDamageMultiplier * lm;
+      const pathMult = def.pathDamageMultiplier * lm;
+      const critChance = getHeroCritChanceNow(hero);
+      const critMult = getEffectiveStat('critMultiplier');
+      let killed = 0;
+      for (const e of enemies) {
+        const isCrit = rollChance(critChance);
+        const m = (e.id === target.id) ? targetMult : pathMult;
+        const fdmg = baseDmg * m * (isCrit ? critMult : 1);
+        dealDamage(e, fdmg, isCrit, startX, startY, world, 0, def);
+        if (!e.alive) killed++;
+      }
+      // Телепорт героя + переключение прилипания на цель рывка (если жива).
+      hero.x = heroEndX;
+      hero.y = heroEndY;
+      clampInsideArena(hero, arena);
+      hero.currentTargetId = target.alive ? target.id : null;
+      logEvent(`${def.name}: задел ${enemies.length}${killed ? `, убито ${killed}` : ''}`);
+      break;
+    }
     case 'self_heal': {
       const maxHp = getEffectiveStat('maxHp');
-      const healPct = def.healPctOfMaxHp * (1 + (lvl - 1) * def.levelBonusPerLvl);
+      const healPct = def.healPctOfMaxHp * lvlMult(def, lvl);
       const heal = Math.round(maxHp * healPct);
       heroState.currentHp = Math.min(maxHp, heroState.currentHp + heal);
       spawnDamageNumber(hero.x, hero.y - hero.radius - 6, heal, false, world.timeNow);
@@ -431,25 +690,33 @@ export function activateSkill(hero, skillId, world) {
       return false;
   }
 
-  // Универсальный buffOnUse — применяется любым скиллом, у которого он указан.
+  // Универсальный buffOnUse — применяется любым скиллом, у которого он указан. Скейлится с уровнем.
   if (def.buffOnUse) {
     const b = def.buffOnUse;
+    const lm = lvlMult(def, lvl);
+    const atkSpd = (b.atkSpdBonusPct || 0) * lm;
+    const dmg    = (b.damageBonusPct  || 0) * lm;
+    const critChance = comboTaggedBonus ? (b.critChanceBonusIfTagged || 0) * lm : 0;
     hero.buffs.push({
       type: 'speed',
       endsAt: world.timeNow + b.durationSec,
-      atkSpdBonusPct: b.atkSpdBonusPct || 0,
-      damageBonusPct: b.damageBonusPct || 0,
+      atkSpdBonusPct: atkSpd,
+      damageBonusPct: dmg,
+      critChanceBonus: critChance,
     });
     spawnEffect({ type: 'expandingRing', x: hero.x, y: hero.y, fromRadius: 4, toRadius: 50,
                   color: '#4fd6ff', lineWidth: 3, duration: 0.32 }, world.timeNow);
-    if (b.atkSpdBonusPct) {
-      logEvent(`${def.name}: +${Math.round(b.atkSpdBonusPct * 100)}% ск.атаки на ${b.durationSec}с`);
+    if (atkSpd) {
+      const critTag = critChance ? ` +${Math.round(critChance * 100)}% крит-шанс (тег)` : '';
+      logEvent(`${def.name}: +${Math.round(atkSpd * 100)}% ск.атаки${critTag} на ${b.durationSec}с`);
     }
   }
 
   // Списать ресурс / поставить КД
   if (def.activation === 'cooldown') {
-    hero.skillCooldowns[skillId] = skillCooldownAfterCdr(def.baseCooldown);
+    let cd = skillCooldownAfterCdr(def.baseCooldown);
+    if (def.cdMultiplierIfRage && isRageActive(hero)) cd *= def.cdMultiplierIfRage;
+    hero.skillCooldowns[skillId] = cd;
   } else if (def.activation === 'charges') {
     hero.rageCharges = 0;
   }
@@ -477,15 +744,30 @@ function executePendingSlam(hero, world) {
   spawnEffect({ type: 'pulse', x: ps.x, y: ps.y, radius: def.aoeRadius * 0.6,
                 color: '#ffd23f', alpha: 0.45, duration: 0.3 }, world.timeNow);
   const baseDmg = getHeroDamageNow(hero) * skillDamageMultiplier(def, lvl);
+  const critChance = getHeroCritChanceNow(hero);
+  const critMult = getEffectiveStat('critMultiplier');
+  const kdSec = (def.knockdownSec || 1.5) * lvlMult(def, lvl);
   let killed = 0;
+  let kdHits = 0;       // сколько лежачих было задето (для лога)
+  let kdApplied = 0;    // сколько новых положили нокдаун-шансом
   for (const e of enemies) {
-    const isCrit = rollChance(getEffectiveStat('critChance'));
-    const fdmg = baseDmg * (isCrit ? getEffectiveStat('critMultiplier') : 1);
-    dealDamage(e, fdmg, isCrit, ps.x, ps.y, world, def.knockback || 0);
+    const wasKnockedDown = e.knockdownUntil > world.timeNow;
+    const isCrit = rollChance(critChance);
+    const fdmg = baseDmg * (isCrit ? critMult : 1);
+    dealDamage(e, fdmg, isCrit, ps.x, ps.y, world, def.knockback || 0, def);
+    if (wasKnockedDown) kdHits++;
+    // Knockdown-шанс — только тех, кто ещё не лежит и выжил после удара.
+    if (e.alive && !wasKnockedDown && def.knockdownChance && rollChance(def.knockdownChance)) {
+      e.knockdownUntil = Math.max(e.knockdownUntil, world.timeNow + kdSec);
+      kdApplied++;
+    }
     if (!e.alive) killed++;
   }
   triggerSkillShake(world.timeNow);
-  logEvent(`Приземление: задел ${enemies.length}${killed ? `, убито ${killed}` : ''}`);
+  const kdHitsTag = (def.bonusVsKnockedDownPct && kdHits > 0)
+    ? ` 💢+${Math.round(def.bonusVsKnockedDownPct * 100)}% × ${kdHits}` : '';
+  const kdAppliedTag = kdApplied > 0 ? ` ⤵️${kdApplied}` : '';
+  logEvent(`Приземление: задел ${enemies.length}${killed ? `, убито ${killed}` : ''}${kdHitsTag}${kdAppliedTag}`);
 }
 
 
@@ -497,6 +779,7 @@ function tickDots(arena, world) {
     if (!e.alive || !e.dot) continue;
     if (world.timeNow >= e.dot.expiresAt) {
       e.dot = null;
+      e.bleedStacks = 0;
       continue;
     }
     while (world.timeNow >= e.dot.nextTickAt) {
@@ -577,6 +860,7 @@ export function updateBattle(world, dt) {
     updateEnemies(currentArena, world, dt);
     tickDots(currentArena, world);
   }
+  updateProjectiles(world, dt);
 }
 
 function heroMoveToNextArena(hero, world, dt) {
@@ -675,12 +959,22 @@ function updateEnemies(arena, world, dt) {
       e.knockback = null;
     }
 
+    // Подсечка/нокдаун: враг лежит, не двигается, не атакует.
+    // Дополнительно: KD ОТМЕНЯЕТ замах Качка (windup) — это и есть counter-spell.
+    if (e.knockdownUntil > world.timeNow) {
+      e.windingUpUntil = 0;
+      e.state = ENEMY_STATE.IDLE;
+      continue;
+    }
+
     if (hero.state === HERO_STATE.DEAD) {
       e.state = ENEMY_STATE.IDLE;
       continue;
     }
 
-    const desiredDist = e.radius + hero.radius + 8;
+    const isRanged = e.kind === 'ranged';
+    const meleeDist = e.radius + hero.radius + 8;
+    const desiredDist = isRanged ? (e.attackRange || meleeDist) : meleeDist;
     const dx = hero.x - e.x;
     const dy = hero.y - e.y;
     const dist = Math.hypot(dx, dy);
@@ -690,7 +984,9 @@ function updateEnemies(arena, world, dt) {
       e.x += (dx / dist) * Math.min(step, dist - desiredDist);
       e.y += (dy / dist) * Math.min(step, dist - desiredDist);
       e.state = ENEMY_STATE.CHASING;
-    } else if (dist < desiredDist - 4) {
+    } else if (!isRanged && dist < desiredDist - 4) {
+      // Только melee-враги отступают если герой подошёл слишком близко.
+      // Ranged стоит и стреляет в упор — намеренно (см. дизайн дальника).
       const step = e.moveSpeed * dt * 0.5;
       e.x -= (dx / dist) * step;
       e.y -= (dy / dist) * step;
@@ -701,8 +997,28 @@ function updateEnemies(arena, world, dt) {
 
     e.attackCooldown -= dt;
     if (e.state === ENEMY_STATE.ATTACKING && e.attackCooldown <= 0) {
-      enemyAttackHero(e, hero, world);
-      e.attackCooldown = 1 / e.attackSpeed;
+      // Windup-вариант (Качок): первый тик в attacking → начать замах. На последующих тиках
+      // ждём пока замах допекается, потом наносим удар. Knockdown отменяет замах (см. выше).
+      if (e.windupDuration && !e.windingUpUntil) {
+        e.windingUpUntil = world.timeNow + e.windupDuration;
+      } else if (!e.windupDuration || world.timeNow >= e.windingUpUntil) {
+        if (isRanged) {
+          rangedEnemyAttack(e, hero, world);
+        } else if (e.windupDuration) {
+          // Качок: на момент удара чек что герой ещё в melee — иначе промах (escape-окно).
+          const reach = e.radius + hero.radius + 12;
+          const distToHeroNow = Math.hypot(hero.x - e.x, hero.y - e.y);
+          if (distToHeroNow <= reach) {
+            enemyAttackHero(e, hero, world);
+          } else {
+            logEvent(`${e.name} промахнулся`);
+          }
+        } else {
+          enemyAttackHero(e, hero, world);
+        }
+        e.windingUpUntil = 0;
+        e.attackCooldown = 1 / e.attackSpeed;
+      }
     }
 
     clampInsideArena(e, arena);

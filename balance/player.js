@@ -28,14 +28,14 @@ export const PLAYER = {
 };
 
 export const STAT_BONUSES = {
-  strength:  { damage: 2, critChance: 0.002 },
-  toughness: { maxHp: 10, defense: 0.005, hpRegen: 0.001 },
-  agility:   { attackSpeedPct: 0.01, skillCdrPct: 0.005, dodgeChance: 0.002 },
+  strength:  { damage: 5, critChance: 0.005 },
+  toughness: { maxHp: 25, defense: 0.012, hpRegen: 0.0025 },
+  agility:   { attackSpeedPct: 0.025, skillCdrPct: 0.012, dodgeChance: 0.005 },
 };
 
 export const STAT_LEVEL_XP = {
-  baseXp: 30,
-  growthMultiplier: 1.6,
+  baseXp: 20,
+  growthMultiplier: 1.4,
 };
 
 export function xpForLevel(level) {

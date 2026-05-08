@@ -98,8 +98,9 @@ export function rollRegularDrop(locationLevel) {
 
 // Диспатчер дропа эквипа по типу врага. Возвращает item или null.
 export function rollDropForEnemy(enemy, locationLevel) {
-  if (enemy.kind === 'boss')  return rollBossDrop(locationLevel);
-  if (enemy.kind === 'elite') return rollEliteDrop(locationLevel);
+  if (enemy.kind === 'bar_boss') return null;     // бар-босс не роняет лут (только медаль)
+  if (enemy.kind === 'boss')     return rollBossDrop(locationLevel);
+  if (enemy.kind === 'elite')    return rollEliteDrop(locationLevel);
   return rollRegularDrop(locationLevel);
 }
 

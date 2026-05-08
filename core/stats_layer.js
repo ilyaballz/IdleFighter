@@ -4,6 +4,7 @@
 import { PLAYER, STAT_BONUSES, xpForLevel } from '../balance/player.js';
 import { getEquipmentBonus } from '../balance/equipment.js';
 import { getEquippedItems } from './inventory.js';
+import { getPerkBonus } from './bar_state.js';
 
 // State героя — уровни первичных статов (в v1 = 1, далее растут от тренажёров)
 export const heroState = {
@@ -28,64 +29,79 @@ function statBonusFromLevels(levels, primaryStat, bonusKey) {
   return Math.max(0, lvl - 1) * per;
 }
 
-// Чистая функция: считает финальный стат для произвольного билда (используется и игрой, и симулятором).
-export function computeEffectiveStat(statName, levels, equippedItems = []) {
+// Чистая функция: считает финальный стат для произвольного билда.
+// perkBonusFn — опциональный источник перковых бонусов (DI для симулятора).
+// По умолчанию — live barState через getPerkBonus.
+export function computeEffectiveStat(statName, levels, equippedItems = [], perkBonusFn = getPerkBonus) {
+  const perk = perkBonusFn || (() => 0);
   switch (statName) {
     case 'maxHp': {
-      return PLAYER.baseHp
-           + statBonusFromLevels(levels, 'toughness', 'maxHp')
-           + getEquipmentBonus('maxHp', equippedItems);
+      const base = PLAYER.baseHp
+                 + statBonusFromLevels(levels, 'toughness', 'maxHp')
+                 + getEquipmentBonus('maxHp', equippedItems)
+                 + perk('maxHpFlat');
+      return base * (1 + perk('maxHpPct'));
     }
     case 'damage': {
-      return PLAYER.baseDamage
-           + statBonusFromLevels(levels, 'strength', 'damage')
-           + getEquipmentBonus('damage', equippedItems);
+      const base = PLAYER.baseDamage
+                 + statBonusFromLevels(levels, 'strength', 'damage')
+                 + getEquipmentBonus('damage', equippedItems)
+                 + perk('damageFlat');
+      return base * (1 + perk('damagePct'));
     }
     case 'attackSpeed': {
       const pct = statBonusFromLevels(levels, 'agility', 'attackSpeedPct')
-                + getEquipmentBonus('attackSpeedPct', equippedItems);
+                + getEquipmentBonus('attackSpeedPct', equippedItems)
+                + perk('attackSpeedPct');
       return clamp(PLAYER.baseAttackSpeed * (1 + pct), PLAYER.capAttackSpeed);
     }
     case 'critChance': {
       return clamp(
         PLAYER.baseCritChance
         + statBonusFromLevels(levels, 'strength', 'critChance')
-        + getEquipmentBonus('critChance', equippedItems),
+        + getEquipmentBonus('critChance', equippedItems)
+        + perk('critChance'),
         PLAYER.capCritChance);
     }
     case 'critMultiplier': {
       return clamp(
-        PLAYER.baseCritMultiplier + getEquipmentBonus('critMultiplier', equippedItems),
+        PLAYER.baseCritMultiplier
+        + getEquipmentBonus('critMultiplier', equippedItems)
+        + perk('critMultiplier'),
         PLAYER.capCritMultiplier);
     }
     case 'dodgeChance': {
       return clamp(
         PLAYER.baseDodgeChance
         + statBonusFromLevels(levels, 'agility', 'dodgeChance')
-        + getEquipmentBonus('dodgeChance', equippedItems),
+        + getEquipmentBonus('dodgeChance', equippedItems)
+        + perk('dodgeChance'),
         PLAYER.capDodgeChance);
     }
     case 'defense': {
       return clamp(
         PLAYER.baseDefense
         + statBonusFromLevels(levels, 'toughness', 'defense')
-        + getEquipmentBonus('defense', equippedItems),
+        + getEquipmentBonus('defense', equippedItems)
+        + perk('defense'),
         PLAYER.capDefense);
     }
     case 'skillCdrPct': {
       return clamp(
         PLAYER.baseSkillCdrPct
         + statBonusFromLevels(levels, 'agility', 'skillCdrPct')
-        + getEquipmentBonus('skillCdrPct', equippedItems),
+        + getEquipmentBonus('skillCdrPct', equippedItems)
+        + perk('skillCdrPct'),
         PLAYER.capSkillCdrPct);
     }
     case 'hpRegenInBattle': {
       return PLAYER.baseHpRegenInBattle
-           + statBonusFromLevels(levels, 'toughness', 'hpRegen');
+           + statBonusFromLevels(levels, 'toughness', 'hpRegen')
+           + perk('hpRegenInBattle');
     }
     case 'hpRegenBetweenWaves': return PLAYER.baseHpRegenBetweenWaves;
-    case 'moveSpeed':           return PLAYER.moveSpeed;
-    case 'attackRadius':        return PLAYER.attackRadius;
+    case 'moveSpeed':           return PLAYER.moveSpeed + perk('moveSpeed');
+    case 'attackRadius':        return PLAYER.attackRadius + perk('attackRadius');
     case 'bodyRadius':          return PLAYER.bodyRadius;
     default:
       console.warn('Unknown stat:', statName);
@@ -95,7 +111,7 @@ export function computeEffectiveStat(statName, levels, equippedItems = []) {
 
 // Основная игровая обёртка — берёт состояние из live state.
 export function getEffectiveStat(statName) {
-  return computeEffectiveStat(statName, heroState.levels, getEquippedItems());
+  return computeEffectiveStat(statName, heroState.levels, getEquippedItems(), getPerkBonus);
 }
 
 export function resetHeroForNewRun() {

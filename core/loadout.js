@@ -144,6 +144,7 @@ export function addShard(skillId, count = 1) {
 // Дроп шарда с врага. Возвращает { skillId, name } или null.
 // Шанс берётся из *_BASE.shardDropChance, скилл — случайный из открытых.
 export function rollShardDropForEnemy(enemy) {
+  if (enemy.kind === 'bar_boss') return null;     // бар-босс не роняет шарды
   let chance;
   if (enemy.kind === 'boss')      chance = BOSS_BASE.shardDropChance;
   else if (enemy.kind === 'elite') chance = ELITE_BASE.shardDropChance;

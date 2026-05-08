@@ -4,8 +4,9 @@
 import { ARENA } from '../balance/visuals.js';
 import {
   arenasForLocation, rollArenaComposition,
-  ENEMY_BASE, ELITE_BASE, SCALING, BOSS_BASE,
+  ENEMY_BASE, ELITE_BASE, RANGED_BASE, HEAVY_BASE, SCALING, BOSS_BASE,
 } from '../balance/enemies.js';
+import { BAR_BOSS, bossStatsForLevel } from '../balance/bar.js';
 
 export function buildLocation(locationIndex) {
   const arenas = [];
@@ -94,6 +95,7 @@ function buildEnemyTemplate(unit, locationIndex, arenaIndex) {
       bodyRadius: BOSS_BASE.bodyRadius * sR,
       color: BOSS_BASE.color,
       coinDrop: BOSS_BASE.baseCoinDrop * locationIndex,
+      energyReward: BOSS_BASE.energyReward,
     };
   }
   if (unit.kind === 'elite') {
@@ -109,6 +111,34 @@ function buildEnemyTemplate(unit, locationIndex, arenaIndex) {
       coinDrop: ELITE_BASE.baseCoinDrop * locationIndex,
     };
   }
+  if (unit.kind === 'ranged') {
+    return {
+      kind: 'ranged',
+      name: RANGED_BASE.name,
+      hp: scaleStat(RANGED_BASE.baseHp, locationIndex, arenaIndex) * sHp,
+      damage: scaleStat(RANGED_BASE.baseDamage, locationIndex, arenaIndex) * sDmg,
+      attackSpeed: RANGED_BASE.baseAttackSpeed,
+      moveSpeed: RANGED_BASE.moveSpeed,
+      bodyRadius: RANGED_BASE.bodyRadius * sR,
+      attackRange: RANGED_BASE.attackRange,
+      color: RANGED_BASE.color,
+      coinDrop: RANGED_BASE.baseCoinDrop * locationIndex,
+    };
+  }
+  if (unit.kind === 'heavy') {
+    return {
+      kind: 'heavy',
+      name: HEAVY_BASE.name,
+      hp: scaleStat(HEAVY_BASE.baseHp, locationIndex, arenaIndex) * sHp,
+      damage: scaleStat(HEAVY_BASE.baseDamage, locationIndex, arenaIndex) * sDmg,
+      attackSpeed: HEAVY_BASE.baseAttackSpeed,
+      moveSpeed: HEAVY_BASE.moveSpeed,
+      bodyRadius: HEAVY_BASE.bodyRadius * sR,
+      windupDuration: HEAVY_BASE.windupDuration,
+      color: HEAVY_BASE.color,
+      coinDrop: HEAVY_BASE.baseCoinDrop * locationIndex,
+    };
+  }
   // regular
   return {
     kind: 'regular',
@@ -120,6 +150,54 @@ function buildEnemyTemplate(unit, locationIndex, arenaIndex) {
     bodyRadius: ENEMY_BASE.bodyRadius * sR,
     color: ENEMY_BASE.color,
     coinDrop: ENEMY_BASE.baseCoinDrop * locationIndex,
+  };
+}
+
+// Бар-локация: одна арена, один босс. Скейлинг от уровня героя (max stat level).
+export function buildBarLocation(heroLevel) {
+  const arenaW = ARENA.arenaWidth;
+  const arenaH = ARENA.arenaHeight;
+  const centerX = 0;
+  const arena = {
+    index: 1,
+    x: centerX - arenaW / 2,
+    y: 0,
+    w: arenaW,
+    h: arenaH,
+    composition: { type: 'boss', units: [{ kind: 'bar_boss', count: 1 }] },
+    cleared: false,
+    activated: false,
+    entryPoint: { x: centerX, y: 30 },
+    exitPoint:  { x: centerX, y: arenaH - 30 },
+    centerPoint:{ x: centerX, y: arenaH / 2 },
+    barBossLevel: heroLevel,
+  };
+  return {
+    locationIndex: 1,
+    kind: 'bar',
+    arenas: [arena],
+    corridors: [],
+    totalHeight: arenaH,
+    width: arenaW,
+  };
+}
+
+// Шаблон бар-босса. Отдельный kind 'bar_boss' (не 'boss') — ни лута, ни монет, ни энергии:
+// логика дропа в rollDropForEnemy/rollShardDropForEnemy явно возвращает null для этого kind.
+export function buildBarBossTemplate(bossLevel) {
+  const s = bossStatsForLevel(bossLevel);
+  const name = BAR_BOSS.names[Math.floor(Math.random() * BAR_BOSS.names.length)];
+  return {
+    kind: 'bar_boss',
+    name,
+    hp: s.hp,
+    damage: s.damage,
+    attackSpeed: BAR_BOSS.attackSpeed,
+    moveSpeed: BAR_BOSS.moveSpeed,
+    bodyRadius: BAR_BOSS.bodyRadius,
+    color: BAR_BOSS.color,
+    coinDrop: 0,
+    energyReward: 0,
   };
 }
 

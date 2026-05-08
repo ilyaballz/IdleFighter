@@ -43,7 +43,7 @@ export const SECONDARY_AFFIXES = [
   { type: 'skillCdrPct',    base: 0.04 },
 ];
 
-export const LOCATION_VALUE_SCALE = 1.20; // +20% к ценности предмета за локацию
+export const LOCATION_VALUE_SCALE = 1.15; // +15% к ценности предмета за локацию
 
 // Разброс значений вторичных аффиксов внутри одной редкости (±20%).
 export const SECONDARY_AFFIX_VARIANCE = 0.2;

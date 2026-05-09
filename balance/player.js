@@ -27,10 +27,12 @@ export const PLAYER = {
   capSkillCdrPct: 1.0,
 };
 
+// Билд-статы (crit, critMult, cdr, dodge) убраны из тренажёров — они теперь только на эквипе.
+// Тренажёры дают «базу»: прямой урон, HP, защиту, регенерацию, скорость атаки.
 export const STAT_BONUSES = {
-  strength:  { damage: 5, critChance: 0.005 },
-  toughness: { maxHp: 25, defense: 0.012, hpRegen: 0.0025 },
-  agility:   { attackSpeedPct: 0.025, skillCdrPct: 0.012, dodgeChance: 0.005 },
+  strength:  { damage: 5 },
+  toughness: { maxHp: 25, defense: 0.007, hpRegen: 0.0025 },
+  agility:   { attackSpeedPct: 0.015 },
 };
 
 export const STAT_LEVEL_XP = {

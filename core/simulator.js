@@ -4,17 +4,27 @@
 
 import { computeEffectiveStat } from './stats_layer.js';
 import { SKILLS } from '../balance/skills.js';
-import { ENEMY_BASE, ELITE_BASE, SCALING, BOSS_BASE, arenasForLocation, getArenaComposition } from '../balance/enemies.js';
+import { ENEMY_BASE, ELITE_BASE, SCALING, BOSS_BASE, arenasForLocation, getArenaComposition, bossStatsForLocation } from '../balance/enemies.js';
 import {
   bossRarityWeights, EQUIPMENT_SLOTS, RARITIES,
   PRIMARY_AFFIX_BASE, SECONDARY_AFFIXES, LOCATION_VALUE_SCALE,
 } from '../balance/equipment.js';
+import { TRAINER_TIERS } from '../balance/training.js';
 
 import { heroState } from './stats_layer.js';
+import { hubState } from '../hub/state.js';
 import { loadoutState } from './loadout.js';
 import { getEquippedItems } from './inventory.js';
 
 // ───────── Билдеры сценариев ─────────
+
+function trainerMultsFromCurrentTiers() {
+  return {
+    strength:  TRAINER_TIERS[hubState.trainers.strength.tier].statMultiplier,
+    toughness: TRAINER_TIERS[hubState.trainers.toughness.tier].statMultiplier,
+    agility:   TRAINER_TIERS[hubState.trainers.agility.tier].statMultiplier,
+  };
+}
 
 export function buildCurrentScenario() {
   return {
@@ -23,6 +33,7 @@ export function buildCurrentScenario() {
     equippedItems: getEquippedItems(),
     skills: loadoutState.selected.filter(Boolean),
     skillLevels: { ...loadoutState.levels },
+    trainerMults: trainerMultsFromCurrentTiers(),
   };
 }
 
@@ -34,9 +45,11 @@ function getStats(scenario) {
     'defense', 'dodgeChance', 'skillCdrPct',
     'hpRegenInBattle', 'hpRegenBetweenWaves',
   ];
+  const mults = scenario.trainerMults;
+  const tmFn = mults ? (s) => mults[s] ?? 1 : undefined;
   const out = {};
   for (const f of fields) {
-    out[f] = computeEffectiveStat(f, scenario.levels, scenario.equippedItems);
+    out[f] = computeEffectiveStat(f, scenario.levels, scenario.equippedItems, undefined, tmFn);
   }
   return out;
 }
@@ -140,10 +153,11 @@ function buildEnemiesForArena(locationLevel, arenaIdx) {
     const sDmg = u.scaleDmg ?? 1;
     for (let i = 0; i < u.count; i++) {
       if (u.kind === 'boss') {
+        const stats = bossStatsForLocation(locationLevel, arenaIdx);
         out.push({
           kind: 'boss',
-          hp: ENEMY_BASE.baseHp * waveMult * locMult * BOSS_BASE.hpMultiplier * sHp,
-          damage: ENEMY_BASE.baseDamage * waveMult * locMult * BOSS_BASE.damageMultiplier * sDmg,
+          hp: stats.hp * sHp,
+          damage: stats.damage * sDmg,
           attackSpeed: BOSS_BASE.baseAttackSpeed,
         });
       } else if (u.kind === 'elite') {
@@ -301,11 +315,24 @@ function generateAverageItem(slotId, rarityId, locationLevel = 1) {
   };
 }
 
+// Допущение о тире тренажёра у среднего игрока к моменту попытки локации.
+// Привязка к L: к ранним локациям — T1, к поздним — T5. Грубо матчит ожидаемое накопление монет.
+function progressionTrainerTier(loc) {
+  if (loc <= 1) return 1;
+  if (loc <= 3) return 2;
+  if (loc <= 5) return 3;
+  if (loc <= 7) return 4;
+  return 5;
+}
+
 function buildProgressionLevels(targetLocationLevel) {
+  const tier = progressionTrainerTier(targetLocationLevel);
+  const cap = TRAINER_TIERS[tier].levelCap;
   const levels = { strength: 1, toughness: 1, agility: 1 };
   const totalAdded = (targetLocationLevel - 1) * 2;
   for (let i = 0; i < totalAdded; i++) {
-    levels[PROGRESSION_STAT_ORDER[i % 3]]++;
+    const stat = PROGRESSION_STAT_ORDER[i % 3];
+    if (levels[stat] < cap) levels[stat]++;
   }
   return levels;
 }
@@ -326,12 +353,15 @@ function buildProgressionEquipment(targetLocationLevel) {
 export function buildProgressionScenario(targetLocationLevel) {
   const skillLevels = {};
   for (const id of PROGRESSION_SKILLS) skillLevels[id] = 1;
+  const tier = progressionTrainerTier(targetLocationLevel);
+  const mult = TRAINER_TIERS[tier].statMultiplier;
   return {
     name: `прогрессия → L${targetLocationLevel}`,
     levels: buildProgressionLevels(targetLocationLevel),
     equippedItems: buildProgressionEquipment(targetLocationLevel),
     skills: PROGRESSION_SKILLS,
     skillLevels,
+    trainerMults: { strength: mult, toughness: mult, agility: mult },
   };
 }
 

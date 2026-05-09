@@ -40,20 +40,23 @@ const STAT_NAMES = {
 };
 
 const BONUS_FORMAT = {
-  damage:         (v) => `+${v} урон`,
+  damage:         (v) => `+${v.toFixed(1)} урон`,
   critChance:     (v) => `+${(v * 100).toFixed(1)}% крит`,
-  maxHp:          (v) => `+${v} HP`,
-  defense:        (v) => `+${(v * 100).toFixed(1)}% защ.`,
+  maxHp:          (v) => `+${v.toFixed(1)} HP`,
+  defense:        (v) => `+${(v * 100).toFixed(2)}% защ.`,
   hpRegen:        (v) => `+${(v * 100).toFixed(2)}%/с реген`,
-  attackSpeedPct: (v) => `+${(v * 100).toFixed(0)}% ск.атаки`,
+  attackSpeedPct: (v) => `+${(v * 100).toFixed(1)}% ск.атаки`,
   skillCdrPct:    (v) => `+${(v * 100).toFixed(1)}% CDR`,
   dodgeChance:    (v) => `+${(v * 100).toFixed(1)}% уворот`,
 };
 
-function describeStatBonusPerLevel(stat) {
+// Показываем эффективные значения с учётом мультипликатора тренажёра.
+// При locked-тренажёре (mult=0) показываем «потенциал» как ×1.0.
+function describeStatBonusPerLevel(stat, multiplier) {
   const b = STAT_BONUSES[stat];
+  const mult = multiplier > 0 ? multiplier : 1;
   return Object.entries(b)
-    .map(([k, v]) => BONUS_FORMAT[k] ? BONUS_FORMAT[k](v) : `${k}+${v}`)
+    .map(([k, v]) => BONUS_FORMAT[k] ? BONUS_FORMAT[k](v * mult) : `${k}+${v * mult}`)
     .join(' · ');
 }
 
@@ -204,35 +207,44 @@ function renderTrainers() {
     const card = document.createElement('div');
     card.className = 'trainer-card';
     const cost = info.nextTierCost;
-    const canTrain = !info.isLocked && hubState.energy >= ENERGY.trainerEntryCost;
+    const canTrain = !info.isLocked && !info.atCap && hubState.energy >= ENERGY.trainerEntryCost;
     const canUpgrade = !info.isMaxTier && currentCoins() >= cost;
     const upgradeLabel = info.isMaxTier
       ? 'МАКС ТИР'
       : info.isLocked
         ? `КУПИТЬ (${cost}💰)`
-        : `Тир ${info.tier + 1} (${cost}💰)`;
-    const tierLabel = info.isLocked ? 'не куплен' : `Тир ${info.tier} · ${info.xpPerTap} XP/тап`;
+        : `Тир ${info.tier + 1} ×${info.nextTierMultiplier.toFixed(1)} cap L${info.nextTierCap} (${cost}💰)`;
+    const tierLabel = info.isLocked
+      ? 'не куплен'
+      : `Тир ${info.tier} · ×${info.statMultiplier.toFixed(2)} эфф. · ${info.xpPerTap} XP/тап`;
+    const trainLabel = info.isLocked
+      ? '🔒 ЗАКРЫТ'
+      : info.atCap
+        ? `🔒 CAP L${info.levelCap} — апгрейдь`
+        : `ТРЕНИРОВАТЬСЯ${ENERGY.trainerEntryCost > 0 ? ` (${ENERGY.trainerEntryCost}⚡)` : ''}`;
+    const levelDisplay = info.isLocked
+      ? `ур. ${xp.level}`
+      : `ур. ${xp.level} / ${info.levelCap}`;
+    // XP-бар: при cap'е показываем как полный (визуально замороженный).
+    const xpFillPct = info.atCap ? 100 : (xp.current / xp.needed) * 100;
+    const xpText = info.atCap ? `CAP достигнут` : `XP ${Math.floor(xp.current)}/${xp.needed}`;
     card.innerHTML = `
       <div class="head">
         <div>
           <span class="icon">${info.icon}</span> ${info.name.toUpperCase()}
           <span class="stat-name"> · ${STAT_NAMES[stat]}</span>
         </div>
-        <div class="level">ур. ${xp.level}</div>
+        <div class="level">${levelDisplay}</div>
       </div>
-      <div class="bonus-desc">${describeStatBonusPerLevel(stat)} / ур.</div>
-      <div class="xp-bar"><div class="xp-fill" style="width:${(xp.current / xp.needed) * 100}%"></div></div>
+      <div class="bonus-desc">${describeStatBonusPerLevel(stat, info.statMultiplier)} / ур.</div>
+      <div class="xp-bar"><div class="xp-fill" style="width:${xpFillPct}%"></div></div>
       <div class="meta">
-        <span>XP ${Math.floor(xp.current)}/${xp.needed}</span>
+        <span>${xpText}</span>
         <span>${tierLabel}</span>
       </div>
       <div class="actions">
         <button class="upgrade" ${canUpgrade ? '' : 'disabled'}>${upgradeLabel}</button>
-        <button class="primary train" ${canTrain ? '' : 'disabled'}>${
-          info.isLocked
-            ? '🔒 ЗАКРЫТ'
-            : `ТРЕНИРОВАТЬСЯ${ENERGY.trainerEntryCost > 0 ? ` (${ENERGY.trainerEntryCost}⚡)` : ''}`
-        }</button>
+        <button class="primary train" ${canTrain ? '' : 'disabled'}>${trainLabel}</button>
       </div>
     `;
     card.querySelector('.upgrade').addEventListener('click', () => onTrainerUpgrade(stat));
@@ -773,9 +785,11 @@ let currentWardrobeSlot = 'fists';
 
 const STAT_DISPLAY = {
   damage:         { icon: '⚔', label: 'УРОН',     fmt: (v) => `+${v}` },
+  damagePct:      { icon: '⚔', label: 'УРОН %',   fmt: (v) => `+${(v * 100).toFixed(1)}%` },
   critChance:     { icon: '✨', label: 'КРИТ',     fmt: (v) => `+${(v * 100).toFixed(1)}%` },
   critMultiplier: { icon: '💥', label: 'МУЛ.КРИТ', fmt: (v) => `+${v.toFixed(2)}×` },
   maxHp:          { icon: '❤', label: 'HP',       fmt: (v) => `+${v}` },
+  maxHpPct:       { icon: '❤', label: 'HP %',     fmt: (v) => `+${(v * 100).toFixed(1)}%` },
   defense:        { icon: '🛡', label: 'ЗАЩИТА',   fmt: (v) => `+${(v * 100).toFixed(1)}%` },
   attackSpeedPct: { icon: '⚡', label: 'СК.АТК',   fmt: (v) => `+${(v * 100).toFixed(1)}%` },
   dodgeChance:    { icon: '💨', label: 'УВОРОТ',   fmt: (v) => `+${(v * 100).toFixed(1)}%` },

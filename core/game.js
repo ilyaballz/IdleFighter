@@ -25,12 +25,16 @@ import {
   tryUpgradeTrainer, startTrainingSession, endTrainingSession,
   updateSession as updateHubSession, performTap,
   getEffectiveEnergyMax, tryUpgradeHome,
+  bindHeroStatLevelProvider,
 } from '../hub/state.js';
-import { resetHeroForNewRun, addStatXp } from './stats_layer.js';
+import { resetHeroForNewRun, addStatXp, heroState } from './stats_layer.js';
 import { loadoutState, addGachaToken, rollShardDropForEnemy } from './loadout.js';
 import { addItem, rollDropForEnemy } from './inventory.js';
 import { RARITIES, EQUIPMENT_SLOTS } from '../balance/equipment.js';
 import { updateFx, resetFx } from './fx.js';
+
+// Связываем hub/state с heroState через DI — нужно для cap-проверок без циклического импорта.
+bindHeroStatLevelProvider((stat) => heroState.levels[stat] || 0);
 import { logEvent } from './logger.js';
 import { bindDevPanel } from './dev.js';
 
@@ -291,17 +295,19 @@ bindHubActions({
 
 bindTapButton(() => {
   if (!hubState.session) return;
+  const sessionStat = hubState.session.stat;
   const result = performTap(addStatXp, world.timeNow);
   if (!result) return;
   flashTapFeedback(result);
   if (!result.failed) spawnXpFly(result.xpGain, result.zone);
-  if (result.leveledUp) logEvent(`Уровень стата вверх: ${hubState.session?.stat || ''}`, 'crit');
+  if (result.leveledUp) logEvent(`Уровень стата вверх: ${sessionStat}`, 'crit');
+  if (result.capReached) logEvent(`${sessionStat}: достигнут cap тира — апгрейдь тренажёр`, 'crit');
   renderTapDynamic();
   if (result.sessionEnded || result.failed) {
     setTimeout(() => {
       hideTapOverlay();
       renderHub();
-    }, result.failed ? 600 : 400);
+    }, result.failed ? 600 : result.capReached ? 700 : 400);
   }
 });
 

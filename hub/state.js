@@ -107,19 +107,47 @@ export function tryUpgradeHome(buildingId, walletDeduce) {
 
 // ───────── Тренажёры ─────────
 
+// Hero-level provider (DI чтобы избежать циклического импорта core/stats_layer.js → hub/state.js).
+// core/game.js при старте делает bindHeroStatLevelProvider((stat) => heroState.levels[stat]).
+let heroStatLevelProvider = () => 0;
+export function bindHeroStatLevelProvider(fn) { heroStatLevelProvider = fn; }
+
+export function getTrainerStatMultiplier(stat) {
+  const t = hubState.trainers[stat];
+  if (!t) return 0;
+  return TRAINER_TIERS[t.tier].statMultiplier;
+}
+
+export function getTrainerLevelCap(stat) {
+  const t = hubState.trainers[stat];
+  if (!t) return 0;
+  return TRAINER_TIERS[t.tier].levelCap;
+}
+
+export function isStatAtCap(stat) {
+  return heroStatLevelProvider(stat) >= getTrainerLevelCap(stat);
+}
+
 export function getTrainerInfo(stat) {
   const t = hubState.trainers[stat];
   // TRAINER_TIERS теперь индексируется напрямую по tier (tier 0 = locked).
   const tier = TRAINER_TIERS[t.tier];
   const next = TRAINER_TIERS[t.tier + 1] || null;
   const meta = TRAINERS[stat];
+  const heroLvl = heroStatLevelProvider(stat);
   return {
     stat,
     name: meta.name,
     icon: meta.icon,
     tier: t.tier,
     xpPerTap: tier.xpPerTap,
+    statMultiplier: tier.statMultiplier,
+    levelCap: tier.levelCap,
+    heroLevel: heroLvl,
+    atCap: heroLvl >= tier.levelCap && t.tier > 0,
     nextTierCost: next ? next.upgradeCost : null,
+    nextTierMultiplier: next ? next.statMultiplier : null,
+    nextTierCap: next ? next.levelCap : null,
     isMaxTier: !next,
     isLocked: t.tier === 0,
     greenWidth: t.greenWidth,
@@ -141,7 +169,9 @@ export function tryUpgradeTrainer(stat, walletDeduce) {
 
 export function startTrainingSession(stat) {
   if (hubState.session) return false;
-  if (hubState.trainers[stat].tier === 0) return false; // не куплен
+  const t = hubState.trainers[stat];
+  if (t.tier === 0) return false; // не куплен
+  if (heroStatLevelProvider(stat) >= TRAINER_TIERS[t.tier].levelCap) return false; // cap достигнут
   if (hubState.energy < ENERGY.trainerEntryCost) return false;
   hubState.energy -= ENERGY.trainerEntryCost;
   hubState.session = {
@@ -236,6 +266,13 @@ export function performTap(addStatXpFn, timeNow) {
   const xp = TRAINER_TIERS[t.tier].xpPerTap;
   const leveledUp = addStatXpFn(s.stat, xp);
   s.leveledUp = leveledUp;
+
+  // Если допрыгнули до cap'а — завершаем сессию, дальнейшие тапы ничего не дадут.
+  const capReached = heroStatLevelProvider(s.stat) >= TRAINER_TIERS[t.tier].levelCap;
+  if (capReached) {
+    hubState.session = null;
+    return { zone, energySpent: energyCost, xpGain: xp, leveledUp, sessionEnded: true, capReached: true };
+  }
 
   // Сессия больше не ограничена количеством тапов — заканчивается только по нехватке энергии.
   return { zone, energySpent: energyCost, xpGain: xp, leveledUp, sessionEnded: false };

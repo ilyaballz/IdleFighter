@@ -57,7 +57,7 @@ export const HEAVY_BASE = {
 };
 
 export const BOSS_BASE = {
-  hpMultiplier: 8.0,
+  hpMultiplier: 25.0,
   damageMultiplier: 2.0,
   baseAttackSpeed: 0.5,
   moveSpeed: 70,
@@ -72,8 +72,23 @@ export const BOSS_BASE = {
 
 export const SCALING = {
   perWaveMultiplier: 1.05,
-  perLocationMultiplier: 1.30,
+  perLocationMultiplier: 1.25,
 };
+
+// L1 — обучающий хардкод (босс HP 100 / DMG 4), чтобы первый забег без прокачки был проходим.
+// L2+ — формула: ENEMY_BASE × wave-scale × loc-scale × BOSS_BASE.hpMultiplier|damageMultiplier.
+// Юнит-модификаторы (scaleHp/scaleDmg от спец-арен) применяются СНАРУЖИ — это «база» босса.
+export function bossStatsForLocation(locationIndex, arenaIndex) {
+  if (locationIndex === 1) {
+    return { hp: 100, damage: 4 };
+  }
+  const wave = Math.pow(SCALING.perWaveMultiplier, arenaIndex - 1);
+  const loc  = Math.pow(SCALING.perLocationMultiplier, locationIndex - 1);
+  return {
+    hp:     ENEMY_BASE.baseHp     * wave * loc * BOSS_BASE.hpMultiplier,
+    damage: ENEMY_BASE.baseDamage * wave * loc * BOSS_BASE.damageMultiplier,
+  };
+}
 
 export const LOCATION_STRUCTURE = {
   // Длина локации растёт с прогрессией: L1 — короткая (5 арен), к L11+ — полная (15).

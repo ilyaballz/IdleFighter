@@ -5,6 +5,7 @@ import { ARENA } from '../balance/visuals.js';
 import {
   arenasForLocation, rollArenaComposition,
   ENEMY_BASE, ELITE_BASE, RANGED_BASE, HEAVY_BASE, SCALING, BOSS_BASE,
+  bossStatsForLocation,
 } from '../balance/enemies.js';
 import { BAR_BOSS, bossStatsForLevel } from '../balance/bar.js';
 
@@ -83,13 +84,12 @@ function buildEnemyTemplate(unit, locationIndex, arenaIndex) {
   const sR   = unit.scaleRadius ?? 1;
 
   if (unit.kind === 'boss') {
-    const regularHp  = scaleStat(ENEMY_BASE.baseHp,     locationIndex, arenaIndex);
-    const regularDmg = scaleStat(ENEMY_BASE.baseDamage, locationIndex, arenaIndex);
+    const stats = bossStatsForLocation(locationIndex, arenaIndex);
     return {
       kind: 'boss',
       name: BOSS_BASE.name,
-      hp: regularHp * BOSS_BASE.hpMultiplier * sHp,
-      damage: regularDmg * BOSS_BASE.damageMultiplier * sDmg,
+      hp: stats.hp * sHp,
+      damage: stats.damage * sDmg,
       attackSpeed: BOSS_BASE.baseAttackSpeed,
       moveSpeed: BOSS_BASE.moveSpeed,
       bodyRadius: BOSS_BASE.bodyRadius * sR,

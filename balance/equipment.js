@@ -13,10 +13,10 @@ export const EQUIPMENT_SLOTS = {
 
 export const RARITIES = {
   common:    { color: '#9e9e9e', extraAffixes: 0, name: 'Обычный',    weight: 1.00 },
-  good:      { color: '#4caf50', extraAffixes: 1, name: 'Хороший',    weight: 1.40 },
+  good:      { color: '#4caf50', extraAffixes: 1, name: 'Хороший',    weight: 1.50 },
   rare:      { color: '#2196f3', extraAffixes: 2, name: 'Редкий',     weight: 2.00 },
-  epic:      { color: '#9c27b0', extraAffixes: 3, name: 'Эпический',  weight: 3.00 },
-  legendary: { color: '#ff9800', extraAffixes: 4, name: 'Легендарный', weight: 4.50 },
+  epic:      { color: '#9c27b0', extraAffixes: 3, name: 'Эпический',  weight: 2.50 },
+  legendary: { color: '#ff9800', extraAffixes: 4, name: 'Легендарный', weight: 3.00 },
 };
 
 // Базовое значение primary affix для common-предмета на L1 локации.
@@ -32,18 +32,22 @@ export const PRIMARY_AFFIX_BASE = {
 
 // Пул вторичных аффиксов — простой, базовые статы.
 // На предмете тип не повторяется + не совпадает с primary.
+// damagePct / maxHpPct — мультипликативные бонусы, шуршат на late game поверх flat-вкладов
+// (от тренажёров и от других аффиксов). Считаются как множитель `(base + flat) × (1 + pct)`.
 export const SECONDARY_AFFIXES = [
   { type: 'damage',         base: 3 },
+  { type: 'damagePct',      base: 0.03 },
   { type: 'critChance',     base: 0.02 },
   { type: 'critMultiplier', base: 0.15 },
   { type: 'maxHp',          base: 20 },
+  { type: 'maxHpPct',       base: 0.04 },
   { type: 'defense',        base: 0.03 },
   { type: 'attackSpeedPct', base: 0.05 },
   { type: 'dodgeChance',    base: 0.02 },
   { type: 'skillCdrPct',    base: 0.04 },
 ];
 
-export const LOCATION_VALUE_SCALE = 1.15; // +15% к ценности предмета за локацию
+export const LOCATION_VALUE_SCALE = 1.10; // +10% к ценности предмета за локацию
 
 // Разброс значений вторичных аффиксов внутри одной редкости (±20%).
 export const SECONDARY_AFFIX_VARIANCE = 0.2;

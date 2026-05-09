@@ -5,7 +5,7 @@ import { RARITIES, EQUIPMENT_SLOTS } from '../balance/equipment.js';
 import { getEffectiveStat, heroState, resetAllProgression } from './stats_layer.js';
 import { loadoutState, addShard, addGachaToken, unlockAll } from './loadout.js';
 import { inventoryState, addItem, rollBossDrop, resetInventory } from './inventory.js';
-import { hubState, resetHubState } from '../hub/state.js';
+import { hubState, resetHubState, getTrainerLevelCap } from '../hub/state.js';
 import { resetBarState } from './bar_state.js';
 import { renderHub } from '../hub/ui.js';
 import { logEvent } from './logger.js';
@@ -85,7 +85,8 @@ export function bindDevPanel(ctx) {
   });
   $('dev-stat-levels').addEventListener('click', () => {
     for (const s of ['strength', 'toughness', 'agility']) {
-      heroState.levels[s] += 10;
+      const cap = getTrainerLevelCap(s);
+      if (cap > 0) heroState.levels[s] = Math.min(heroState.levels[s] + 10, cap);
     }
     heroState.currentHp = getEffectiveStat('maxHp');
     refreshIfHub();

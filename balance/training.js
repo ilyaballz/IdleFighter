@@ -44,12 +44,18 @@ export const TRAINERS = {
 
 // Тир 0 = тренажёр не куплен. Стартовое состояние всех тренажёров.
 // Покупка (символическая, 50 монет) переводит в тир 1, дальше идут полноценные апгрейды.
-// Шаг ×3 между тирами: пост-апгрейд ощущается как cliff-дроп.
+// Шаг ×3 между тирами по xpPerTap.
+//
+// statMultiplier — множитель эффективности всех уровней соответствующего стата.
+// Применяется ретроактивно: после апгрейда УЖЕ накачанные уровни множатся на новый множитель.
+//
+// levelCap — максимальный уровень соответствующего стата при текущем тире.
+// При cap'е тренажёр блокирует вход в сессию — нужно купить следующий тир.
 export const TRAINER_TIERS = [
-  { tier: 0, xpPerTap: 0,   upgradeCost: 0 },
-  { tier: 1, xpPerTap: 3,   upgradeCost: 50 },
-  { tier: 2, xpPerTap: 10,  upgradeCost: 500 },
-  { tier: 3, xpPerTap: 30,  upgradeCost: 2000 },
-  { tier: 4, xpPerTap: 90,  upgradeCost: 8000 },
-  { tier: 5, xpPerTap: 270, upgradeCost: 30000 },
+  { tier: 0, statMultiplier: 0,   levelCap: 0,  xpPerTap: 0,   upgradeCost: 0 },
+  { tier: 1, statMultiplier: 1.0, levelCap: 5,  xpPerTap: 3,   upgradeCost: 50 },
+  { tier: 2, statMultiplier: 1.5, levelCap: 10, xpPerTap: 10,  upgradeCost: 500 },
+  { tier: 3, statMultiplier: 2.0, levelCap: 15, xpPerTap: 30,  upgradeCost: 2000 },
+  { tier: 4, statMultiplier: 2.5, levelCap: 20, xpPerTap: 90,  upgradeCost: 8000 },
+  { tier: 5, statMultiplier: 3.0, levelCap: 25, xpPerTap: 270, upgradeCost: 30000 },
 ];

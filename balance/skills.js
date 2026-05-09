@@ -48,7 +48,7 @@ export const SKILLS = {
   slam: {
     name: 'Прыжок с приземлением',
     activation: 'cooldown',
-    baseCooldown: 14.0,
+    baseCooldown: 15.0,
     targetType: 'aoe_landing',
     aoeRadius: 130,
     baseDamageMultiplier: 4.0,
@@ -57,9 +57,9 @@ export const SKILLS = {
     // Синергия с knockdown:
     //  • по лежачей цели — bonusVsKnockedDownPct к урону (per-target, без форс-крита).
     //  • при попадании — knockdownChance шанс сам положить врага (если он ещё не лежит).
-    bonusVsKnockedDownPct: 0.5,
-    knockdownChance: 0.2,
-    knockdownSec: 1.5,
+    bonusVsKnockedDownPct: 0.25,
+    knockdownChance: 0.1,
+    knockdownSec: 1,
     // Marked: точка приземления = помеченная цель (если есть), иначе ближайший.
     prefersMarkedTarget: true,
     // Rage synergy: каст 0.8с → 0.4с (молниеносная реакция под Яростью).

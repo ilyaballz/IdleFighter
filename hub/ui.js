@@ -889,9 +889,6 @@ function affixPillHtml(aff) {
   return `<span class="affix-pill"><span class="pill-icon">${icon}</span>${val}<span class="pill-label">${label}</span></span>`;
 }
 
-// Подтверждение распыления для rare/epic/legendary. Common/good — без диалога (мусор).
-const RARITY_ORDER = { common: 1, good: 2, rare: 3, epic: 4, legendary: 5 };
-
 function renderItemCard(item, isEquipped) {
   const r = RARITIES[item.rarity];
   const slot = EQUIPMENT_SLOTS[item.slot];
@@ -968,13 +965,6 @@ function renderItemCard(item, isEquipped) {
   div.querySelector('.salvage-btn').addEventListener('click', (ev) => {
     ev.stopPropagation();
     if (isEquipped) return;
-    const order = RARITY_ORDER[item.rarity] || 0;
-    if (order >= 3) {
-      const confirmed = confirm(
-        `Распылить [${r.name}] ${slot.name}?\n+${salvageValue}🔮 (вложенная эссенция вернётся)`
-      );
-      if (!confirmed) return;
-    }
     if (onItemSalvage(item.id)) {
       renderHub();
     }

@@ -6,6 +6,7 @@ import {
   arenasForLocation, rollArenaComposition,
   ENEMY_BASE, ELITE_BASE, RANGED_BASE, HEAVY_BASE, SCALING, BOSS_BASE,
   bossStatsForLocation, bossNutDrop,
+  enemyHpMultForLocation, enemyDamageMultForLocation,
 } from '../balance/enemies.js';
 import { BAR_BOSS, bossStatsForLevel } from '../balance/bar.js';
 
@@ -60,10 +61,17 @@ export function buildLocation(locationIndex) {
   };
 }
 
-export function scaleStat(baseValue, locationIndex, arenaIndex) {
-  return baseValue
-    * Math.pow(SCALING.perWaveMultiplier, arenaIndex - 1)
-    * Math.pow(SCALING.perLocationMultiplier, locationIndex - 1);
+// Per-arena скейл (общий для HP и damage) — wave-мультипликатор накапливается внутри локации.
+function waveMult(arenaIndex) {
+  return Math.pow(SCALING.perWaveMultiplier, arenaIndex - 1);
+}
+
+export function scaleEnemyHp(baseValue, locationIndex, arenaIndex) {
+  return baseValue * waveMult(arenaIndex) * enemyHpMultForLocation(locationIndex);
+}
+
+export function scaleEnemyDamage(baseValue, locationIndex, arenaIndex) {
+  return baseValue * waveMult(arenaIndex) * enemyDamageMultForLocation(locationIndex);
 }
 
 // Возвращает массив "шаблонов" врагов для арены — итерируется по composition.units.
@@ -103,8 +111,8 @@ function buildEnemyTemplate(unit, locationIndex, arenaIndex) {
     return {
       kind: 'elite',
       name: ELITE_BASE.name,
-      hp: scaleStat(ELITE_BASE.baseHp, locationIndex, arenaIndex) * sHp,
-      damage: scaleStat(ELITE_BASE.baseDamage, locationIndex, arenaIndex) * sDmg,
+      hp: scaleEnemyHp(ELITE_BASE.baseHp, locationIndex, arenaIndex) * sHp,
+      damage: scaleEnemyDamage(ELITE_BASE.baseDamage, locationIndex, arenaIndex) * sDmg,
       attackSpeed: ELITE_BASE.baseAttackSpeed,
       moveSpeed: ELITE_BASE.moveSpeed,
       bodyRadius: ELITE_BASE.bodyRadius * sR,
@@ -116,8 +124,8 @@ function buildEnemyTemplate(unit, locationIndex, arenaIndex) {
     return {
       kind: 'ranged',
       name: RANGED_BASE.name,
-      hp: scaleStat(RANGED_BASE.baseHp, locationIndex, arenaIndex) * sHp,
-      damage: scaleStat(RANGED_BASE.baseDamage, locationIndex, arenaIndex) * sDmg,
+      hp: scaleEnemyHp(RANGED_BASE.baseHp, locationIndex, arenaIndex) * sHp,
+      damage: scaleEnemyDamage(RANGED_BASE.baseDamage, locationIndex, arenaIndex) * sDmg,
       attackSpeed: RANGED_BASE.baseAttackSpeed,
       moveSpeed: RANGED_BASE.moveSpeed,
       bodyRadius: RANGED_BASE.bodyRadius * sR,
@@ -130,8 +138,8 @@ function buildEnemyTemplate(unit, locationIndex, arenaIndex) {
     return {
       kind: 'heavy',
       name: HEAVY_BASE.name,
-      hp: scaleStat(HEAVY_BASE.baseHp, locationIndex, arenaIndex) * sHp,
-      damage: scaleStat(HEAVY_BASE.baseDamage, locationIndex, arenaIndex) * sDmg,
+      hp: scaleEnemyHp(HEAVY_BASE.baseHp, locationIndex, arenaIndex) * sHp,
+      damage: scaleEnemyDamage(HEAVY_BASE.baseDamage, locationIndex, arenaIndex) * sDmg,
       attackSpeed: HEAVY_BASE.baseAttackSpeed,
       moveSpeed: HEAVY_BASE.moveSpeed,
       bodyRadius: HEAVY_BASE.bodyRadius * sR,
@@ -145,8 +153,8 @@ function buildEnemyTemplate(unit, locationIndex, arenaIndex) {
   return {
     kind: 'regular',
     name: ENEMY_BASE.name,
-    hp: scaleStat(ENEMY_BASE.baseHp, locationIndex, arenaIndex) * sHp,
-    damage: scaleStat(ENEMY_BASE.baseDamage, locationIndex, arenaIndex) * sDmg,
+    hp: scaleEnemyHp(ENEMY_BASE.baseHp, locationIndex, arenaIndex) * sHp,
+    damage: scaleEnemyDamage(ENEMY_BASE.baseDamage, locationIndex, arenaIndex) * sDmg,
     attackSpeed: ENEMY_BASE.baseAttackSpeed,
     moveSpeed: ENEMY_BASE.moveSpeed,
     bodyRadius: ENEMY_BASE.bodyRadius * sR,

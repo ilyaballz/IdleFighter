@@ -971,6 +971,29 @@ function updateEnemies(arena, world, dt) {
       continue;
     }
 
+    // SLAM-удар (качок): срабатывает в момент завершения замаха ИЗ ТОЧКИ где замах стартовал.
+    // Раньше слэм был внутри блока attack-timer и зависел от состояния — если игрок успевал
+    // увести качка из ATTACKING-фазы, замах «зависал». Теперь срабатывание независимое.
+    if (e.windingUpUntil && world.timeNow >= e.windingUpUntil && e.slamRadius > 0) {
+      const distToHeroNow = Math.hypot(hero.x - e.x, hero.y - e.y);
+      if (distToHeroNow <= e.slamRadius) {
+        enemyAttackHero(e, hero, world);
+      } else {
+        logEvent(`${e.name} промахнулся слэмом`);
+      }
+      e.windingUpUntil = 0;
+      e.windingUpStartedAt = 0;
+      e.attackCooldown = 1 / e.attackSpeed;
+      continue;
+    }
+
+    // Замах активен — качок врос в землю, не двигается, телеграф остаётся на месте.
+    // Это даёт игроку чёткое окно «обойти / сбить с ног / уйти из радиуса».
+    if (e.windingUpUntil > world.timeNow) {
+      e.state = ENEMY_STATE.ATTACKING;
+      continue;
+    }
+
     if (hero.state === HERO_STATE.DEAD) {
       e.state = ENEMY_STATE.IDLE;
       continue;
@@ -981,19 +1004,31 @@ function updateEnemies(arena, world, dt) {
     const desiredDist = isRanged ? (e.attackRange || meleeDist) : meleeDist;
     const dx = hero.x - e.x;
     const dy = hero.y - e.y;
-    const dist = Math.hypot(dx, dy);
+    // Guard от dist=0 (например после slam-телепорта героя ровно на врага).
+    // Без guard'а ветка retreat ниже даёт 0/0 = NaN в координатах → враг визуально исчезает,
+    // но продолжает работать в AI на NaN-сравнениях (`NaN > X` = false). Используем малое
+    // ненулевое значение и фиксированное направление-юнит, чтобы враг просто оттолкнулся.
+    let dist = Math.hypot(dx, dy);
+    let nx, ny;
+    if (dist < 0.001) {
+      dist = 0.001;
+      nx = 1; ny = 0;       // произвольный фиксированный юнит — лучше детерминизма, чем рандом
+    } else {
+      nx = dx / dist; ny = dy / dist;
+    }
 
     if (dist > desiredDist + 4) {
       const step = e.moveSpeed * dt;
-      e.x += (dx / dist) * Math.min(step, dist - desiredDist);
-      e.y += (dy / dist) * Math.min(step, dist - desiredDist);
+      const move = Math.min(step, dist - desiredDist);
+      e.x += nx * move;
+      e.y += ny * move;
       e.state = ENEMY_STATE.CHASING;
     } else if (!isRanged && dist < desiredDist - 4) {
       // Только melee-враги отступают если герой подошёл слишком близко.
       // Ranged стоит и стреляет в упор — намеренно (см. дизайн дальника).
       const step = e.moveSpeed * dt * 0.5;
-      e.x -= (dx / dist) * step;
-      e.y -= (dy / dist) * step;
+      e.x -= nx * step;
+      e.y -= ny * step;
       e.state = ENEMY_STATE.CHASING;
     } else {
       e.state = ENEMY_STATE.ATTACKING;
@@ -1001,29 +1036,18 @@ function updateEnemies(arena, world, dt) {
 
     e.attackCooldown -= dt;
     if (e.state === ENEMY_STATE.ATTACKING && e.attackCooldown <= 0) {
-      // Windup-вариант (Качок): первый тик в attacking → начать замах. На последующих тиках
-      // ждём пока замах допекается, потом наносим удар. Knockdown отменяет замах (см. выше).
       if (e.windupDuration && !e.windingUpUntil) {
+        // Качок: первый тик в attacking → стартует замах. Дальше враг встаёт колом
+        // (см. early-continue в начале цикла), сам слэм триггерится отдельной проверкой.
         e.windingUpUntil = world.timeNow + e.windupDuration;
         e.windingUpStartedAt = world.timeNow;
-      } else if (!e.windupDuration || world.timeNow >= e.windingUpUntil) {
+      } else if (!e.windupDuration) {
+        // Регулярный melee / ranged — мгновенная атака без замаха.
         if (isRanged) {
           rangedEnemyAttack(e, hero, world);
-        } else if (e.windupDuration && e.slamRadius > 0) {
-          // SLAM: AOE по всем в радиусе slamRadius на момент завершения телеграфа.
-          // Hero в круге → получает урон. Выйти можно только через KD (отменяет замах) или
-          // через дэш (Рывок). В прототипе hero автономен и не уходит сам.
-          const distToHeroNow = Math.hypot(hero.x - e.x, hero.y - e.y);
-          if (distToHeroNow <= e.slamRadius) {
-            enemyAttackHero(e, hero, world);
-          } else {
-            logEvent(`${e.name} промахнулся слэмом`);
-          }
         } else {
           enemyAttackHero(e, hero, world);
         }
-        e.windingUpUntil = 0;
-        e.windingUpStartedAt = 0;
         e.attackCooldown = 1 / e.attackSpeed;
       }
     }

@@ -59,8 +59,6 @@ export const HEAVY_BASE = {
 };
 
 export const BOSS_BASE = {
-  hpMultiplier: 25.0,        // потолок: достигается на L10+ через bossHpMultiplierForLocation
-  damageMultiplier: 2.0,
   baseAttackSpeed: 0.5,
   moveSpeed: 70,
   bodyRadius: 36,
@@ -70,12 +68,116 @@ export const BOSS_BASE = {
   energyReward: 30,            // +⚡ в хабе при убийстве — гарантирует апгрейд после локации
   color: '#e63946',
   name: 'Босс',
+  // damageMultiplier теперь живёт в BOSS_DAMAGE_CURVE (по умолчанию плоский ×2.0).
 };
 
 export const SCALING = {
-  perWaveMultiplier: 1.05,
-  perLocationMultiplier: 1.32,
+  perWaveMultiplier: 1.05,    // ~+5% за арену внутри локации (общий для всех)
 };
+
+// Финальная локация — до неё растягиваются power-кривые сложности (BOSS_HP_CURVE, BOSS_DAMAGE_CURVE).
+// Если решишь добавить L16-L20 (или урезать до L10) — меняй только здесь, и кривые автоматически
+// перенацеливаются. Exp-кривые (ENEMY_HP/DAMAGE_CURVE) не зависят от FINAL_LOCATION — они растут
+// экспоненциально без явного пика.
+//
+// Заметка: pack-тиры (T4 fromLoc) и таблицы редкости дропа в equipment.js пока завязаны на абсолютные
+// номера локаций — если будешь сильно растягивать игру, их тоже стоит передвинуть пропорционально.
+export const FINAL_LOCATION = 15;
+
+// ──────────────────────────────────────────────────────────────────────────
+// КРИВЫЕ СЛОЖНОСТИ — единая «крутилка баланса» по локациям.
+//
+// evaluateCurve поддерживает два режима. Подбирай тот, что лучше ложится на твой контент:
+//
+//   mode: 'exp'   — startMult × growthRate^(loc - startLocation), без крутого cap'а.
+//                   Хорош для unbounded прогрессии «idle-стиля» (мобы растут с каждой локой).
+//                   Опционально: endMult клампит сверху.
+//
+//   mode: 'power' — startMult + (endMult - startMult) × t^curve
+//                   где t = clamp((loc - startLocation) / (endLocation - startLocation), 0, 1).
+//                   Bounded — у кривой явный пик. curve управляет формой:
+//                     curve = 1.0 → линейно
+//                     curve > 1.0 → медленный старт, ускорение к концу (концентрация в late)
+//                     curve < 1.0 → быстрый старт, плавное затухание к концу
+//                   Хорош для боссов и любых «контролируемых» прогрессий.
+//
+// Примеры тюнинга:
+//   • Хочешь чтобы L1-L7 ощущался как «комфорт-зона», а сложность бьёт в late? Power, curve > 2.
+//   • Хочешь резкую кривую но с плато на L15? Exp + endMult.
+//   • Хочешь снизить общую сложность? Уменьши endMult (power) или growthRate (exp).
+// ──────────────────────────────────────────────────────────────────────────
+
+function evaluateCurve(c, loc) {
+  let value;
+  if (c.mode === 'exp') {
+    value = c.startMult * Math.pow(c.growthRate, Math.max(0, loc - c.startLocation));
+    if (c.endMult != null) value = Math.min(c.endMult, value);
+  } else {
+    // power (default)
+    const span = c.endLocation - c.startLocation;
+    if (span <= 0) {
+      value = c.endMult;
+    } else {
+      const t = Math.max(0, Math.min(1, (loc - c.startLocation) / span));
+      value = c.startMult + (c.endMult - c.startMult) * Math.pow(t, c.curve);
+    }
+  }
+  // Per-loc spike: на конкретных локациях значение домножается на bump.
+  // Влияет только на эту локу, соседние не задеваются — это «boss-wall» паттерн.
+  // Композится с любым mode ('exp' или 'power'), ортогональная фича.
+  if (c.locationBumps && c.locationBumps[loc] != null) {
+    value *= c.locationBumps[loc];
+  }
+  return value;
+}
+
+// HP всех мобов (regular/elite/heavy/ranged + база босса до бонусного множителя).
+export const ENEMY_HP_CURVE = {
+  mode: 'exp',
+  startLocation: 1,
+  startMult:     1.0,
+  growthRate:    1.3,        // L1=×1, L5=×3.0, L10=×12.2, L15=×48.8
+};
+
+// Damage всех мобов.
+export const ENEMY_DAMAGE_CURVE = {
+  mode: 'exp',
+  startLocation: 1,
+  startMult:     1.0,
+  growthRate:    1.3,        // зеркалит HP — мобы кусаются пропорционально HP
+};
+
+// HP-мультипликатор босса поверх ENEMY_HP_CURVE. L1 — хардкод (100 hp), кривая с L2.
+//
+// locationBumps — «boss-wall» локи: эти конкретные боссы получают доп. множитель.
+// Spike — только на этой локе, соседние не задеваются (L5=×1.5 не влияет на L4 и L6).
+export const BOSS_HP_CURVE = {
+  mode: 'power',
+  startLocation: 2,
+  endLocation:   FINAL_LOCATION,
+  startMult:     10,
+  endMult:       25,
+  curve:         0.5,
+  locationBumps: { 5: 1.5, 10: 1.6, 15: 1.5 },
+};
+
+// Damage-мультипликатор босса поверх ENEMY_DAMAGE_CURVE.
+// locationBumps — спайки на тех же boss-wall локациях, что и у HP.
+export const BOSS_DAMAGE_CURVE = {
+  mode: 'power',
+  startLocation: 1,
+  endLocation:   FINAL_LOCATION,
+  startMult:     2.0,
+  endMult:       2.0,
+  curve:         0.5,
+  locationBumps: { 5: 1.5, 10: 1.6, 15: 1.5 },
+};
+
+// Milestone-локи дополнительно повышают шанс легендарного дропа с босса —
+// награда за «пробитие стенки». Значения добавляются к weight'у legendary в bossRarityWeights
+// (см. balance/equipment.js). Вес дальше нормализуется внутри pickWeighted, поэтому 5-10
+// доп. weight'а это +3-8% к итоговому шансу выпадения.
+export const MILESTONE_LEGENDARY_BOOST = { 5: 5, 10: 8, 15: 5 };
 
 // Гайки 🔩 — отдельная валюта для прокачки дома (отделена от монет тренажёров).
 // Дропают только боссы локаций, чтобы накопление гаек = «зачистил локацию = заработал на QOL».
@@ -85,34 +187,43 @@ export function bossNutDrop(locationIndex) {
   return 1 + Math.floor(locationIndex / 2);
 }
 
-// HP-мультипликатор босса плавно растёт от L2 к капу BOSS_BASE.hpMultiplier (=25) на L10+.
-// L2 = ×10, +2 за локацию, L10+ = ×25.
-export function bossHpMultiplierForLocation(locationIndex) {
-  if (locationIndex <= 1) return 1; // L1 хардкоднут отдельно
-  return Math.min(BOSS_BASE.hpMultiplier, 10 + (locationIndex - 2) * 2);
+export function enemyHpMultForLocation(loc) {
+  return evaluateCurve(ENEMY_HP_CURVE, loc);
+}
+export function enemyDamageMultForLocation(loc) {
+  return evaluateCurve(ENEMY_DAMAGE_CURVE, loc);
+}
+export function bossHpMultiplierForLocation(loc) {
+  if (loc <= 1) return 1; // L1 хардкоднут отдельно
+  return evaluateCurve(BOSS_HP_CURVE, loc);
+}
+export function bossDamageMultiplierForLocation(loc) {
+  return evaluateCurve(BOSS_DAMAGE_CURVE, loc);
 }
 
 // L1 — обучающий хардкод (босс HP 100 / DMG 4), чтобы первый забег без прокачки был проходим.
-// L2+ — формула с плавным HP-мультипликатором (см. bossHpMultiplierForLocation).
+// L2+ — формула: база Гопника × wave × ENEMY_*_CURVE × BOSS_*_CURVE.
 // Юнит-модификаторы (scaleHp/scaleDmg от спец-арен) применяются СНАРУЖИ — это «база» босса.
 export function bossStatsForLocation(locationIndex, arenaIndex) {
   if (locationIndex === 1) {
     return { hp: 100, damage: 4 };
   }
-  const wave    = Math.pow(SCALING.perWaveMultiplier, arenaIndex - 1);
-  const loc     = Math.pow(SCALING.perLocationMultiplier, locationIndex - 1);
-  const hpMult  = bossHpMultiplierForLocation(locationIndex);
+  const wave        = Math.pow(SCALING.perWaveMultiplier, arenaIndex - 1);
+  const enemyHpMul  = enemyHpMultForLocation(locationIndex);
+  const enemyDmgMul = enemyDamageMultForLocation(locationIndex);
+  const bossHpMul   = bossHpMultiplierForLocation(locationIndex);
+  const bossDmgMul  = bossDamageMultiplierForLocation(locationIndex);
   return {
-    hp:     ENEMY_BASE.baseHp     * wave * loc * hpMult,
-    damage: ENEMY_BASE.baseDamage * wave * loc * BOSS_BASE.damageMultiplier,
+    hp:     ENEMY_BASE.baseHp     * wave * enemyHpMul  * bossHpMul,
+    damage: ENEMY_BASE.baseDamage * wave * enemyDmgMul * bossDmgMul,
   };
 }
 
 export const LOCATION_STRUCTURE = {
-  // Длина локации растёт с прогрессией: L1 — короткая (5 арен), к L11+ — полная (15).
-  baseArenasPerLocation: 5,
-  arenasGrowthPerLocation: 1,    // +1 арена за локацию
-  maxArenasPerLocation: 15,
+  // Длина локации растёт с L1 (arenasAtStart) до FINAL_LOCATION (arenasAtFinal) линейно.
+  // Кол-во арен интерполируется и округляется — см. arenasForLocation.
+  arenasAtStart: 5,
+  arenasAtFinal: 15,
   enemiesPerArena: {
     base: 2,                     // первая арена локации = 2 врага (ease-in)
     growthPerArena: 0.2,         // дальше плавно растёт по аренам
@@ -129,12 +240,15 @@ export function regularEnemyCap(locationIndex) {
   return 5;
 }
 
+// Линейная интерполяция от arenasAtStart (L1) до arenasAtFinal (FINAL_LOCATION).
+// Если расширишь FINAL_LOCATION — пик автоматически сдвинется.
 export function arenasForLocation(locationIndex) {
-  return Math.min(
-    LOCATION_STRUCTURE.maxArenasPerLocation,
-    LOCATION_STRUCTURE.baseArenasPerLocation +
-      Math.floor((locationIndex - 1) * LOCATION_STRUCTURE.arenasGrowthPerLocation)
-  );
+  const ls = LOCATION_STRUCTURE;
+  if (locationIndex <= 1) return ls.arenasAtStart;
+  if (locationIndex >= FINAL_LOCATION) return ls.arenasAtFinal;
+  const t = (locationIndex - 1) / (FINAL_LOCATION - 1);
+  const range = ls.arenasAtFinal - ls.arenasAtStart;
+  return Math.round(ls.arenasAtStart + range * t);
 }
 
 // ───────── Спец-арены ─────────

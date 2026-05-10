@@ -4,7 +4,11 @@
 
 import { computeEffectiveStat } from './stats_layer.js';
 import { SKILLS } from '../balance/skills.js';
-import { ENEMY_BASE, ELITE_BASE, RANGED_BASE, HEAVY_BASE, SCALING, BOSS_BASE, arenasForLocation, getArenaComposition, bossStatsForLocation } from '../balance/enemies.js';
+import {
+  ENEMY_BASE, ELITE_BASE, RANGED_BASE, HEAVY_BASE, SCALING, BOSS_BASE,
+  arenasForLocation, getArenaComposition, bossStatsForLocation,
+  enemyHpMultForLocation, enemyDamageMultForLocation,
+} from '../balance/enemies.js';
 import {
   bossRarityWeights, EQUIPMENT_SLOTS, RARITIES,
   PRIMARY_AFFIX_BASE, SECONDARY_AFFIXES, LOCATION_VALUE_SCALE,
@@ -146,14 +150,15 @@ function computeHeroDps(scenario, stats) {
 function buildEnemiesForArena(locationLevel, arenaIdx) {
   const composition = getArenaComposition(arenaIdx, locationLevel);
   const waveMult = Math.pow(SCALING.perWaveMultiplier, arenaIdx - 1);
-  const locMult  = Math.pow(SCALING.perLocationMultiplier, locationLevel - 1);
+  const hpLoc    = enemyHpMultForLocation(locationLevel);
+  const dmgLoc   = enemyDamageMultForLocation(locationLevel);
   const out = [];
   for (const u of composition.units) {
     const sHp  = u.scaleHp  ?? 1;
     const sDmg = u.scaleDmg ?? 1;
     for (let i = 0; i < u.count; i++) {
       const baseFor = {
-        boss: null,           // boss использует bossStatsForLocation (см. ниже)
+        boss: null,
         elite: ELITE_BASE,
         heavy: HEAVY_BASE,
         ranged: RANGED_BASE,
@@ -171,8 +176,8 @@ function buildEnemiesForArena(locationLevel, arenaIdx) {
         const base = baseFor[u.kind] || ENEMY_BASE;
         out.push({
           kind: u.kind,
-          hp: base.baseHp * waveMult * locMult * sHp,
-          damage: base.baseDamage * waveMult * locMult * sDmg,
+          hp: base.baseHp * waveMult * hpLoc * sHp,
+          damage: base.baseDamage * waveMult * dmgLoc * sDmg,
           attackSpeed: base.baseAttackSpeed,
         });
       }

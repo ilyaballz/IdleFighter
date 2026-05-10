@@ -84,6 +84,7 @@ export function computeEffectiveStat(
     case 'dodgeChance': {
       return clamp(
         PLAYER.baseDodgeChance
+        + statBonusFromLevels(levels, 'agility', 'dodgeChance', tmf)
         + getEquipmentBonus('dodgeChance', equippedItems)
         + perk('dodgeChance'),
         PLAYER.capDodgeChance);

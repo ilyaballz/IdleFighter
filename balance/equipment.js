@@ -2,6 +2,8 @@
 // Скилл-специфика (skill_damage с конкретным skillId, rage_duration и т.п.) — в комментариях
 // для будущего расширения, пока не используется в генерации.
 
+import { MILESTONE_LEGENDARY_BOOST } from './enemies.js';
+
 export const EQUIPMENT_SLOTS = {
   fists:    { name: 'Кулаки',    icon: '🥊', primaryStat: 'damage' },
   chain:    { name: 'Цепь',      icon: '⛓️',  primaryStat: 'critChance' },
@@ -82,7 +84,10 @@ export const UPGRADE_PRIMARY_PER_LEVEL = 0.10;
 // Таблицы редкости дропа по локации. Ключи — id редкости из RARITIES, значения — веса.
 // Кривая растянута так, чтобы пик пришёлся на L15+ (а не L10+ как раньше),
 // L10-14 — промежуточные ступени для постепенного роста.
-export function bossRarityWeights(loc) {
+//
+// На milestone-локациях (см. MILESTONE_LEGENDARY_BOOST в enemies.js) шанс легендарки доп.
+// повышается — награда за «пробитие стенки».
+function rawBossRarityWeights(loc) {
   if (loc <= 1)  return { common: 60, good: 40 };
   if (loc <= 2)  return { common: 40, good: 55, rare: 5 };
   if (loc <= 3)  return { common: 20, good: 60, rare: 20 };
@@ -94,6 +99,13 @@ export function bossRarityWeights(loc) {
   if (loc <= 13) return { rare: 32, epic: 53, legendary: 15 };
   if (loc <= 14) return { rare: 28, epic: 54, legendary: 18 };
   return                 { rare: 25, epic: 55, legendary: 20 };
+}
+
+export function bossRarityWeights(loc) {
+  const base = rawBossRarityWeights(loc);
+  const boost = MILESTONE_LEGENDARY_BOOST[loc];
+  if (!boost) return base;
+  return { ...base, legendary: (base.legendary || 0) + boost };
 }
 
 export function eliteRarityWeights(loc) {

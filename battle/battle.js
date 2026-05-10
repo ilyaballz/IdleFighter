@@ -66,10 +66,13 @@ export function createEnemyFromTemplate(template, pos) {
     attackSpeed: template.attackSpeed,
     moveSpeed: template.moveSpeed,
     coinDrop: template.coinDrop,
+    nutDrop: template.nutDrop || 0,
     energyReward: template.energyReward || 0,
     attackRange: template.attackRange || 0,         // 0 = melee (стандартное поведение)
     windupDuration: template.windupDuration || 0,   // 0 = атакует мгновенно
+    slamRadius: template.slamRadius || 0,           // > 0 → SLAM-AOE по завершении замаха
     windingUpUntil: 0,                              // мировое время — пока меньше, идёт замах
+    windingUpStartedAt: 0,                          // для рендера прогресса (t = (now - start) / dur)
     state: ENEMY_STATE.IDLE,
     attackCooldown: 0,
     hitFlashUntil: 0,
@@ -963,6 +966,7 @@ function updateEnemies(arena, world, dt) {
     // Дополнительно: KD ОТМЕНЯЕТ замах Качка (windup) — это и есть counter-spell.
     if (e.knockdownUntil > world.timeNow) {
       e.windingUpUntil = 0;
+      e.windingUpStartedAt = 0;
       e.state = ENEMY_STATE.IDLE;
       continue;
     }
@@ -1001,22 +1005,25 @@ function updateEnemies(arena, world, dt) {
       // ждём пока замах допекается, потом наносим удар. Knockdown отменяет замах (см. выше).
       if (e.windupDuration && !e.windingUpUntil) {
         e.windingUpUntil = world.timeNow + e.windupDuration;
+        e.windingUpStartedAt = world.timeNow;
       } else if (!e.windupDuration || world.timeNow >= e.windingUpUntil) {
         if (isRanged) {
           rangedEnemyAttack(e, hero, world);
-        } else if (e.windupDuration) {
-          // Качок: на момент удара чек что герой ещё в melee — иначе промах (escape-окно).
-          const reach = e.radius + hero.radius + 12;
+        } else if (e.windupDuration && e.slamRadius > 0) {
+          // SLAM: AOE по всем в радиусе slamRadius на момент завершения телеграфа.
+          // Hero в круге → получает урон. Выйти можно только через KD (отменяет замах) или
+          // через дэш (Рывок). В прототипе hero автономен и не уходит сам.
           const distToHeroNow = Math.hypot(hero.x - e.x, hero.y - e.y);
-          if (distToHeroNow <= reach) {
+          if (distToHeroNow <= e.slamRadius) {
             enemyAttackHero(e, hero, world);
           } else {
-            logEvent(`${e.name} промахнулся`);
+            logEvent(`${e.name} промахнулся слэмом`);
           }
         } else {
           enemyAttackHero(e, hero, world);
         }
         e.windingUpUntil = 0;
+        e.windingUpStartedAt = 0;
         e.attackCooldown = 1 / e.attackSpeed;
       }
     }

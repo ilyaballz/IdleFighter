@@ -123,18 +123,39 @@ function drawEnemy(ctx, e, timeNow) {
   const knockedDown = e.knockdownUntil > timeNow;
   const windingUp = e.windingUpUntil > timeNow;
   ctx.save();
-  // Красный пульсирующий ореол замаха — отрисовывается ПОД спрайтом, чтобы не перекрывать.
+  // Замах:
+  //  - SLAM (Качок, slamRadius > 0): пунктирный круг на земле + растущая заливка по t.
+  //    Та же визуальная форма, что у landing marker'а молотова — только красная и медленнее.
+  //  - Без slamRadius: пульсирующий ореол вокруг спрайта (старый стиль для других windup-врагов).
   if (windingUp) {
-    const pulse = 1 + Math.sin(timeNow * 14) * 0.12;
-    ctx.beginPath();
-    ctx.arc(e.x, e.y, e.radius * 1.55 * pulse, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(220, 50, 50, 0.22)';
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(e.x, e.y, e.radius * 1.25 * pulse, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(255, 80, 80, 0.85)';
-    ctx.lineWidth = 2;
-    ctx.stroke();
+    if (e.slamRadius && e.slamRadius > 0 && e.windupDuration > 0) {
+      const tRaw = (timeNow - e.windingUpStartedAt) / e.windupDuration;
+      const t = Math.max(0, Math.min(1, tRaw));
+      // Внешний пунктирный круг на полный slamRadius — постоянно видимая «зона угрозы».
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, e.slamRadius, 0, Math.PI * 2);
+      ctx.strokeStyle = '#ff5050';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // Внутренняя заливка растёт по t — наглядный счётчик до удара.
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, e.slamRadius * t, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(220, 50, 50, 0.22)';
+      ctx.fill();
+    } else {
+      const pulse = 1 + Math.sin(timeNow * 14) * 0.12;
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, e.radius * 1.55 * pulse, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(220, 50, 50, 0.22)';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, e.radius * 1.25 * pulse, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(255, 80, 80, 0.85)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
   }
   if (knockedDown) ctx.globalAlpha = 0.55;
   ctx.beginPath();

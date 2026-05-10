@@ -5,7 +5,7 @@ import { ARENA } from '../balance/visuals.js';
 import {
   arenasForLocation, rollArenaComposition,
   ENEMY_BASE, ELITE_BASE, RANGED_BASE, HEAVY_BASE, SCALING, BOSS_BASE,
-  bossStatsForLocation,
+  bossStatsForLocation, bossNutDrop,
 } from '../balance/enemies.js';
 import { BAR_BOSS, bossStatsForLevel } from '../balance/bar.js';
 
@@ -95,6 +95,7 @@ function buildEnemyTemplate(unit, locationIndex, arenaIndex) {
       bodyRadius: BOSS_BASE.bodyRadius * sR,
       color: BOSS_BASE.color,
       coinDrop: BOSS_BASE.baseCoinDrop * locationIndex,
+      nutDrop: bossNutDrop(locationIndex),
       energyReward: BOSS_BASE.energyReward,
     };
   }
@@ -135,6 +136,7 @@ function buildEnemyTemplate(unit, locationIndex, arenaIndex) {
       moveSpeed: HEAVY_BASE.moveSpeed,
       bodyRadius: HEAVY_BASE.bodyRadius * sR,
       windupDuration: HEAVY_BASE.windupDuration,
+      slamRadius: HEAVY_BASE.slamRadius,
       color: HEAVY_BASE.color,
       coinDrop: HEAVY_BASE.baseCoinDrop * locationIndex,
     };

@@ -4,7 +4,7 @@
 
 import { computeEffectiveStat } from './stats_layer.js';
 import { SKILLS } from '../balance/skills.js';
-import { ENEMY_BASE, ELITE_BASE, SCALING, BOSS_BASE, arenasForLocation, getArenaComposition, bossStatsForLocation } from '../balance/enemies.js';
+import { ENEMY_BASE, ELITE_BASE, RANGED_BASE, HEAVY_BASE, SCALING, BOSS_BASE, arenasForLocation, getArenaComposition, bossStatsForLocation } from '../balance/enemies.js';
 import {
   bossRarityWeights, EQUIPMENT_SLOTS, RARITIES,
   PRIMARY_AFFIX_BASE, SECONDARY_AFFIXES, LOCATION_VALUE_SCALE,
@@ -152,6 +152,13 @@ function buildEnemiesForArena(locationLevel, arenaIdx) {
     const sHp  = u.scaleHp  ?? 1;
     const sDmg = u.scaleDmg ?? 1;
     for (let i = 0; i < u.count; i++) {
+      const baseFor = {
+        boss: null,           // boss использует bossStatsForLocation (см. ниже)
+        elite: ELITE_BASE,
+        heavy: HEAVY_BASE,
+        ranged: RANGED_BASE,
+        regular: ENEMY_BASE,
+      };
       if (u.kind === 'boss') {
         const stats = bossStatsForLocation(locationLevel, arenaIdx);
         out.push({
@@ -160,19 +167,13 @@ function buildEnemiesForArena(locationLevel, arenaIdx) {
           damage: stats.damage * sDmg,
           attackSpeed: BOSS_BASE.baseAttackSpeed,
         });
-      } else if (u.kind === 'elite') {
-        out.push({
-          kind: 'elite',
-          hp: ELITE_BASE.baseHp * waveMult * locMult * sHp,
-          damage: ELITE_BASE.baseDamage * waveMult * locMult * sDmg,
-          attackSpeed: ELITE_BASE.baseAttackSpeed,
-        });
       } else {
+        const base = baseFor[u.kind] || ENEMY_BASE;
         out.push({
-          kind: 'regular',
-          hp: ENEMY_BASE.baseHp * waveMult * locMult * sHp,
-          damage: ENEMY_BASE.baseDamage * waveMult * locMult * sDmg,
-          attackSpeed: ENEMY_BASE.baseAttackSpeed,
+          kind: u.kind,
+          hp: base.baseHp * waveMult * locMult * sHp,
+          damage: base.baseDamage * waveMult * locMult * sDmg,
+          attackSpeed: base.baseAttackSpeed,
         });
       }
     }

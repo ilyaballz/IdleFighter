@@ -15,7 +15,7 @@ import {
   bindSkillButtons, updateSkillButtons, showBattleScene,
 } from '../battle/ui.js';
 import {
-  showHubScene, renderHub, bindHubActions, bindCoinsAccessor,
+  showHubScene, renderHub, bindHubActions, bindCoinsAccessor, bindNutsAccessor,
   showTapOverlay, hideTapOverlay,
   renderTapStatic, renderTapDynamic, flashTapFeedback, bindTapButton,
   spawnXpFly, startGachaSpin, showPerkChoiceOverlay,
@@ -37,6 +37,7 @@ import { updateFx, resetFx } from './fx.js';
 bindHeroStatLevelProvider((stat) => heroState.levels[stat] || 0);
 import { logEvent } from './logger.js';
 import { bindDevPanel } from './dev.js';
+import { bindWorldForSave, saveGame, loadGame } from './save.js';
 
 const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
@@ -46,6 +47,7 @@ let scene = 'hub';   // 'hub' | 'battle'
 const world = {
   timeNow: 0,
   coins: 0,
+  nuts: 0,
   hero: null,
   location: null,
   camera: { x: 0, y: 0 },
@@ -63,7 +65,12 @@ const world = {
       if (reward > 0) {
         hubState.energy = Math.min(getEffectiveEnergyMax(), hubState.energy + reward);
       }
-      logEvent(`БОСС повержен! +${enemy.coinDrop}💰${reward > 0 ? ` +${reward}⚡` : ''}`, 'kill');
+      const nuts = enemy.nutDrop || 0;
+      if (nuts > 0) world.nuts += nuts;
+      const parts = [`+${enemy.coinDrop}💰`];
+      if (nuts > 0) parts.push(`+${nuts}🔩`);
+      if (reward > 0) parts.push(`+${reward}⚡`);
+      logEvent(`БОСС повержен! ${parts.join(' ')}`, 'kill');
     } else {
       logEvent(`${enemy.name} убит (+${enemy.coinDrop}💰)`, 'kill');
     }
@@ -79,6 +86,12 @@ const world = {
 };
 
 bindCoinsAccessor(() => world.coins);
+bindNutsAccessor(() => world.nuts);
+bindWorldForSave(world);
+
+// Загружаем сейв до первого старта боя — статы/инвентарь/локация подхватятся.
+const loaded = loadGame();
+if (loaded) logEvent('Сейв загружен');
 
 // ───────── Сцены ─────────
 
@@ -87,6 +100,7 @@ function enterHub() {
   showHubScene();
   endTrainingSession();
   hideTapOverlay();
+  saveGame();
   // Если после боя в баре открылся выбор перка — сразу показать оверлей.
   if (barState.pendingChoice) {
     setTimeout(() => showPerkChoiceOverlay(), 100);
@@ -277,15 +291,15 @@ bindHubActions({
   },
   onHomeUpgrade: (buildingId) => {
     const ok = tryUpgradeHome(buildingId, (cost) => {
-      if (world.coins < cost) return false;
-      world.coins -= cost;
+      if (world.nuts < cost) return false;
+      world.nuts -= cost;
       return true;
     });
     if (ok) {
       logEvent(`Дом прокачан: ${buildingId}`, 'kill');
       renderHub();
     } else {
-      logEvent('Не хватает монет на апгрейд дома', 'warn');
+      logEvent('Не хватает гаек на апгрейд дома', 'warn');
     }
   },
   onBarFight: () => {
@@ -361,7 +375,15 @@ if (new URLSearchParams(location.search).get('dev') === '1') {
   setDevMode(true);
 }
 
+// Сейв при закрытии вкладки/обновлении страницы — гарантия что свежие монеты/гайки не потеряются.
+window.addEventListener('beforeunload', () => saveGame());
+// Подстраховка для мобилок: pagehide срабатывает там, где beforeunload не всегда долетает.
+window.addEventListener('pagehide', () => saveGame());
+
 // ───────── Старт ─────────
 
-enterBattle(hubState.currentLocationIndex);
+// Если сейв подгрузился — стартуем сразу в хабе (игрок сам решит, идти в бой или копить).
+// Если сейва нет — стартуем в L1 как раньше (обучающий первый забег).
+if (loaded) enterHub();
+else enterBattle(hubState.currentLocationIndex);
 tick();

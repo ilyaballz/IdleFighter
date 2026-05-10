@@ -89,18 +89,19 @@ export function getHomeBuildingInfo(buildingId) {
     maxTier: up.tiers.length,
     currentValue: cur.value,
     nextValue: next ? next.value : null,
-    nextCost: next ? next.cost : null,
+    nextNutCost: next ? next.nutCost : null,
     isMaxTier: !next,
   };
 }
 
+// walletDeduce(cost) — кошелёк гаек (см. core/game.js → onHomeUpgrade).
 export function tryUpgradeHome(buildingId, walletDeduce) {
   const up = HOME_UPGRADES[buildingId];
   if (!up) return false;
   const tier = hubState.home[buildingId];
   const next = up.tiers[tier];
   if (!next) return false;
-  if (!walletDeduce(next.cost)) return false;
+  if (!walletDeduce(next.nutCost)) return false;
   hubState.home[buildingId]++;
   return true;
 }
@@ -135,6 +136,10 @@ export function getTrainerInfo(stat) {
   const next = TRAINER_TIERS[t.tier + 1] || null;
   const meta = TRAINERS[stat];
   const heroLvl = heroStatLevelProvider(stat);
+  // canUpgradeTier — выполнено ли требование по уровню для покупки следующего тира.
+  // upgradeRequiresLevel — какой уровень стата нужен (null для T0→T1 и MAX-тира).
+  const canUpgradeTier = next ? heroLvl >= tier.levelCap : false;
+  const upgradeRequiresLevel = (next && t.tier > 0) ? tier.levelCap : null;
   return {
     stat,
     name: meta.name,
@@ -148,6 +153,8 @@ export function getTrainerInfo(stat) {
     nextTierCost: next ? next.upgradeCost : null,
     nextTierMultiplier: next ? next.statMultiplier : null,
     nextTierCap: next ? next.levelCap : null,
+    canUpgradeTier,
+    upgradeRequiresLevel,
     isMaxTier: !next,
     isLocked: t.tier === 0,
     greenWidth: t.greenWidth,
@@ -155,11 +162,16 @@ export function getTrainerInfo(stat) {
   };
 }
 
-// walletDeduce(cost) → true если списали успешно
+// walletDeduce(cost) → true если списали успешно.
+// Гейтинг: апгрейд тира доступен только после достижения cap'а текущего тира
+// (исключение — T0→T1, где cap=0 и проверка тривиально пройдёт). Это убирает shortcut
+// «накопил монет → перепрыгнул несколько тиров», заставляя тапать каждый тир.
 export function tryUpgradeTrainer(stat, walletDeduce) {
   const t = hubState.trainers[stat];
   const next = TRAINER_TIERS[t.tier + 1];
   if (!next) return false;
+  const currentCap = TRAINER_TIERS[t.tier].levelCap;
+  if (heroStatLevelProvider(stat) < currentCap) return false;
   if (!walletDeduce(next.upgradeCost)) return false;
   t.tier++;
   return true;

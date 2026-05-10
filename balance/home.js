@@ -3,6 +3,10 @@
 // couch  → множитель к ENERGY.recoverPerSec
 // trailer → оверрайд ENERGY.maxCap
 // T1 у каждой постройки — стартовый/бесплатный (= совпадает с базой в training.js).
+//
+// Валюта: 🔩 гайки (НЕ монеты). Гайки дропают только боссы локаций — отделено от тренажёров,
+// чтобы апгрейды дома и тренажёров не конкурировали за один кошелёк.
+// Полная прокачка одной постройки = 50 гаек (3 + 7 + 15 + 25).
 
 export const HOME_UPGRADES = {
   fridge: {
@@ -11,11 +15,11 @@ export const HOME_UPGRADES = {
     desc: 'Восст. свежести между сессиями',
     bonusUnit: '/час',
     tiers: [
-      { value: 60,  cost: 0 },
-      { value: 75,  cost: 800 },
-      { value: 95,  cost: 3000 },
-      { value: 120, cost: 12000 },
-      { value: 150, cost: 40000 },
+      { value: 60,  nutCost: 0 },
+      { value: 75,  nutCost: 3 },
+      { value: 95,  nutCost: 7 },
+      { value: 120, nutCost: 15 },
+      { value: 150, nutCost: 25 },
     ],
   },
   couch: {
@@ -24,11 +28,11 @@ export const HOME_UPGRADES = {
     desc: 'Скорость восст. энергии',
     bonusUnit: '×',
     tiers: [
-      { value: 1.0,  cost: 0 },
-      { value: 1.25, cost: 800 },
-      { value: 1.5,  cost: 3000 },
-      { value: 2.0,  cost: 12000 },
-      { value: 2.5,  cost: 40000 },
+      { value: 1.0,  nutCost: 0 },
+      { value: 1.25, nutCost: 3 },
+      { value: 1.5,  nutCost: 7 },
+      { value: 2.0,  nutCost: 15 },
+      { value: 2.5,  nutCost: 25 },
     ],
   },
   trailer: {
@@ -37,11 +41,11 @@ export const HOME_UPGRADES = {
     desc: 'Макс. запас энергии',
     bonusUnit: '⚡',
     tiers: [
-      { value: 100, cost: 0 },
-      { value: 130, cost: 800 },
-      { value: 170, cost: 3000 },
-      { value: 220, cost: 12000 },
-      { value: 300, cost: 40000 },
+      { value: 100, nutCost: 0 },
+      { value: 130, nutCost: 3 },
+      { value: 170, nutCost: 7 },
+      { value: 220, nutCost: 15 },
+      { value: 300, nutCost: 25 },
     ],
   },
 };

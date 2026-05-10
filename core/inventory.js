@@ -9,6 +9,9 @@ import { ENEMY_BASE, ELITE_BASE, BOSS_BASE } from '../balance/enemies.js';
 
 let nextItemId = 1;
 
+export function getNextItemId() { return nextItemId; }
+export function setNextItemId(n) { if (typeof n === 'number' && n > 0) nextItemId = n; }
+
 export const inventoryState = {
   items: [],   // массив всех предметов (надетые тоже здесь)
   equipped: {  // slotId → itemId | null

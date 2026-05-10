@@ -136,6 +136,8 @@ let activeSlotIdx = null;
 export function renderHub() {
   $('hub-loc-info').textContent = `ЛОКАЦИЯ ${hubState.currentLocationIndex}`;
   $('hub-coins').textContent = `💰 ${currentCoins()}`;
+  const nutsEl = $('hub-nuts');
+  if (nutsEl) nutsEl.textContent = `🔩 ${currentNuts()}`;
   const eMax = getEffectiveEnergyMax();
   const eCur = Math.floor(hubState.energy);
   $('hub-energy-text').textContent = `⚡ ${eCur} / ${eMax}`;
@@ -196,6 +198,10 @@ let coinsAccessor = () => 0;
 export function bindCoinsAccessor(getCoinsFn) { coinsAccessor = getCoinsFn; }
 function currentCoins() { return coinsAccessor(); }
 
+let nutsAccessor = () => 0;
+export function bindNutsAccessor(getNutsFn) { nutsAccessor = getNutsFn; }
+function currentNuts() { return nutsAccessor(); }
+
 // ───────── Тренажёры ─────────
 
 function renderTrainers() {
@@ -208,12 +214,14 @@ function renderTrainers() {
     card.className = 'trainer-card';
     const cost = info.nextTierCost;
     const canTrain = !info.isLocked && !info.atCap && hubState.energy >= ENERGY.trainerEntryCost;
-    const canUpgrade = !info.isMaxTier && currentCoins() >= cost;
+    const canUpgrade = !info.isMaxTier && info.canUpgradeTier && currentCoins() >= cost;
     const upgradeLabel = info.isMaxTier
       ? 'МАКС ТИР'
       : info.isLocked
         ? `КУПИТЬ (${cost}💰)`
-        : `Тир ${info.tier + 1} ×${info.nextTierMultiplier.toFixed(1)} cap L${info.nextTierCap} (${cost}💰)`;
+        : !info.canUpgradeTier
+          ? `🔒 нужен L${info.upgradeRequiresLevel}`
+          : `Тир ${info.tier + 1} ×${info.nextTierMultiplier.toFixed(1)} cap L${info.nextTierCap} (${cost}💰)`;
     const tierLabel = info.isLocked
       ? 'не куплен'
       : `Тир ${info.tier} · ×${info.statMultiplier.toFixed(2)} эфф. · ${info.xpPerTap} XP/тап`;
@@ -398,7 +406,7 @@ function renderHouse() {
     const info = getHomeBuildingInfo(buildingId);
     const card = document.createElement('div');
     card.className = 'trainer-card';
-    const canUpgrade = !info.isMaxTier && currentCoins() >= info.nextCost;
+    const canUpgrade = !info.isMaxTier && currentNuts() >= info.nextNutCost;
     const curStr = formatHomeValue(buildingId, info.currentValue);
     const nextStr = info.nextValue != null ? formatHomeValue(buildingId, info.nextValue) : '—';
     card.innerHTML = `
@@ -415,7 +423,7 @@ function renderHouse() {
       </div>
       <div class="actions">
         <button class="upgrade primary" ${canUpgrade ? '' : 'disabled'}>${
-          info.isMaxTier ? 'МАКС ТИР' : `Прокачать (${info.nextCost}💰)`
+          info.isMaxTier ? 'МАКС ТИР' : `Прокачать (${info.nextNutCost}🔩)`
         }</button>
       </div>
     `;
@@ -770,7 +778,10 @@ export function flashTapFeedback(result) {
     return;
   }
   const sym = result.zone === 'green' ? '★' : result.zone === 'yellow' ? '◆' : '✕';
-  fb.textContent = `${sym} ${result.zone.toUpperCase()}  +${result.xpGain} XP  −${result.energySpent}⚡${result.leveledUp ? ' · УРОВЕНЬ ВВЕРХ!' : ''}`;
+  const tail = result.capReached
+    ? ' · УРОВЕНЬ ВВЕРХ! CAP — апгрейдь тренажёр'
+    : (result.leveledUp ? ' · УРОВЕНЬ ВВЕРХ!' : '');
+  fb.textContent = `${sym} ${result.zone.toUpperCase()}  +${result.xpGain} XP  −${result.energySpent}⚡${tail}`;
   fb.className = result.zone;
 }
 

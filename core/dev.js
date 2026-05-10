@@ -7,6 +7,7 @@ import { loadoutState, addShard, addGachaToken, unlockAll } from './loadout.js';
 import { inventoryState, addItem, rollBossDrop, resetInventory } from './inventory.js';
 import { hubState, resetHubState, getTrainerLevelCap } from '../hub/state.js';
 import { resetBarState } from './bar_state.js';
+import { wipeSave } from './save.js';
 import { renderHub } from '../hub/ui.js';
 import { logEvent } from './logger.js';
 import {
@@ -60,6 +61,11 @@ export function bindDevPanel(ctx) {
     ctx.world.coins += 5000;
     refreshIfHub();
   });
+  const devNutsBtn = $('dev-nuts');
+  if (devNutsBtn) devNutsBtn.addEventListener('click', () => {
+    ctx.world.nuts = (ctx.world.nuts || 0) + 20;
+    refreshIfHub();
+  });
   $('dev-shards').addEventListener('click', () => {
     for (const id of Object.keys(SKILLS)) {
       if (loadoutState.unlocked.includes(id)) addShard(id, 10);
@@ -104,6 +110,8 @@ export function bindDevPanel(ctx) {
     loadoutState.gachaTokens = 0;
     resetInventory();
     ctx.world.coins = 0;
+    ctx.world.nuts = 0;
+    wipeSave();
     refreshIfHub();
   });
 }

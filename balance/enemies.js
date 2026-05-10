@@ -40,15 +40,17 @@ export const RANGED_BASE = {
   name: 'Дальник',
 };
 
-// Качок — медленный громила с замахом. Перед каждой атакой 1.5с готовится (красный ореол),
-// потом бьёт ОЧЕНЬ сильно. Knockdown отменяет замах. Уход из melee во время замаха = промах.
+// Качок — медленный громила со SLAM-атакой. Перед ударом 1.5с рисует красный круг на земле
+// (slamRadius); по завершении телеграфа — AOE-удар по всем внутри круга (heavy.damage).
+// Knockdown отменяет замах. Hero автономен и не уходит сам — игрок должен жать KD скилл.
 export const HEAVY_BASE = {
   baseHp: 80,
   baseDamage: 12,           // ×3 базы elite — серьёзная угроза если попадёт
   baseAttackSpeed: 0.4,
   moveSpeed: 60,            // самый медленный
   bodyRadius: 30,
-  windupDuration: 1.5,      // окно реакции для KD/уворота
+  windupDuration: 1.5,      // длительность телеграфа (=рост круга на земле)
+  slamRadius: 80,           // радиус AOE-удара. Hero почти всегда внутри (attackRadius~55 + bodyRadius)
   baseCoinDrop: 10,
   shardDropChance: 0.08,
   equipmentDropChance: 0.15,
@@ -57,7 +59,7 @@ export const HEAVY_BASE = {
 };
 
 export const BOSS_BASE = {
-  hpMultiplier: 25.0,
+  hpMultiplier: 25.0,        // потолок: достигается на L10+ через bossHpMultiplierForLocation
   damageMultiplier: 2.0,
   baseAttackSpeed: 0.5,
   moveSpeed: 70,
@@ -72,20 +74,36 @@ export const BOSS_BASE = {
 
 export const SCALING = {
   perWaveMultiplier: 1.05,
-  perLocationMultiplier: 1.25,
+  perLocationMultiplier: 1.32,
 };
 
+// Гайки 🔩 — отдельная валюта для прокачки дома (отделена от монет тренажёров).
+// Дропают только боссы локаций, чтобы накопление гаек = «зачистил локацию = заработал на QOL».
+// Формула 1 + floor(loc/2): L1=1, L2-3=2, L4-5=3, L10=6, L15=8.
+// Итог за один прогон L1-L15 ≈ 71 гайка. Полная прокачка одного здания дома стоит 50.
+export function bossNutDrop(locationIndex) {
+  return 1 + Math.floor(locationIndex / 2);
+}
+
+// HP-мультипликатор босса плавно растёт от L2 к капу BOSS_BASE.hpMultiplier (=25) на L10+.
+// L2 = ×10, +2 за локацию, L10+ = ×25.
+export function bossHpMultiplierForLocation(locationIndex) {
+  if (locationIndex <= 1) return 1; // L1 хардкоднут отдельно
+  return Math.min(BOSS_BASE.hpMultiplier, 10 + (locationIndex - 2) * 2);
+}
+
 // L1 — обучающий хардкод (босс HP 100 / DMG 4), чтобы первый забег без прокачки был проходим.
-// L2+ — формула: ENEMY_BASE × wave-scale × loc-scale × BOSS_BASE.hpMultiplier|damageMultiplier.
+// L2+ — формула с плавным HP-мультипликатором (см. bossHpMultiplierForLocation).
 // Юнит-модификаторы (scaleHp/scaleDmg от спец-арен) применяются СНАРУЖИ — это «база» босса.
 export function bossStatsForLocation(locationIndex, arenaIndex) {
   if (locationIndex === 1) {
     return { hp: 100, damage: 4 };
   }
-  const wave = Math.pow(SCALING.perWaveMultiplier, arenaIndex - 1);
-  const loc  = Math.pow(SCALING.perLocationMultiplier, locationIndex - 1);
+  const wave    = Math.pow(SCALING.perWaveMultiplier, arenaIndex - 1);
+  const loc     = Math.pow(SCALING.perLocationMultiplier, locationIndex - 1);
+  const hpMult  = bossHpMultiplierForLocation(locationIndex);
   return {
-    hp:     ENEMY_BASE.baseHp     * wave * loc * BOSS_BASE.hpMultiplier,
+    hp:     ENEMY_BASE.baseHp     * wave * loc * hpMult,
     damage: ENEMY_BASE.baseDamage * wave * loc * BOSS_BASE.damageMultiplier,
   };
 }
@@ -125,7 +143,7 @@ export function arenasForLocation(locationIndex) {
 // Шанс растёт с локации: L1 — без замен (обучение), далее линейно до cap.
 
 export const SPECIAL_SPAWN = {
-  startFromLocation: 2,         // L1 без твистов
+  startFromLocation: 3,         // L1-L2 без твистов — обучение core-механикам
   perLocationIncrement: 0.10,
   maxChance: 0.60,
 };
@@ -136,45 +154,176 @@ export function specialSpawnChance(locationIndex) {
   return Math.min(SPECIAL_SPAWN.maxChance, steps * SPECIAL_SPAWN.perLocationIncrement);
 }
 
-// units: список юнитов на арене. Каждый — { kind, count, scaleHp?, scaleDmg?, scaleRadius? }.
-// scale-множители применяются поверх обычного скейлинга (волна × локация).
+// Спец-арены — теперь с тирированной композицией. Каждый pack-type имеет несколько тиров,
+// активируемых от локации. pickTier выбирает самый высокий тир, для которого loc >= fromLoc.
+//
+// Цель — чтобы повторное появление того же pack-типа на разных локациях ощущалось как
+// эскалация, а не как «уже видел». Например, ranged_pack начинается с 2 дальников, к L7
+// получает качка, к L10 — элиту. Бэг пака переписан на более «банда-like» состав.
+//
+// units: { kind, count, scaleHp?, scaleDmg?, scaleRadius? } — scale поверх wave × loc.
 export const SPECIAL_ARENAS = {
   swarm: {
     label: 'рой',
-    units: [
-      { kind: 'regular', count: 10, scaleHp: 0.5, scaleDmg: 0.7, scaleRadius: 0.8 },
+    tiers: [
+      { fromLoc: 3, units: [
+        { kind: 'regular', count: 8, scaleHp: 0.5, scaleDmg: 0.7, scaleRadius: 0.8 },
+      ]},
+      { fromLoc: 6, units: [
+        { kind: 'regular', count: 10, scaleHp: 0.5, scaleDmg: 0.7, scaleRadius: 0.8 },
+        { kind: 'ranged',  count: 1 },
+      ]},
+      { fromLoc: 10, units: [
+        { kind: 'regular', count: 12, scaleHp: 0.5, scaleDmg: 0.7, scaleRadius: 0.8 },
+        { kind: 'ranged',  count: 2 },
+      ]},
+      { fromLoc: 15, units: [
+        { kind: 'regular', count: 14, scaleHp: 0.5, scaleDmg: 0.7, scaleRadius: 0.8 },
+        { kind: 'ranged',  count: 2 },
+        { kind: 'elite',   count: 1 },
+      ]},
     ],
   },
   ranged_pack: {
     label: 'дальники',
-    units: [
-      { kind: 'ranged',  count: 2 },
-      { kind: 'regular', count: 2, scaleHp: 0.7 },
+    tiers: [
+      { fromLoc: 3, units: [
+        { kind: 'ranged',  count: 2 },
+        { kind: 'regular', count: 2, scaleHp: 0.7 },
+      ]},
+      { fromLoc: 6, units: [
+        { kind: 'ranged',  count: 3 },
+        { kind: 'regular', count: 2 },
+      ]},
+      { fromLoc: 10, units: [
+        { kind: 'ranged',  count: 3 },
+        { kind: 'regular', count: 2 },
+      ]},
+      { fromLoc: 15, units: [
+        { kind: 'ranged',  count: 4 },
+        { kind: 'elite',   count: 1 },
+        { kind: 'regular', count: 1 },
+      ]},
     ],
   },
   mixed_pack: {
     label: 'банда',
-    units: [
-      { kind: 'elite',   count: 1 },
-      { kind: 'regular', count: 3 },
-      { kind: 'ranged',  count: 1 },
+    tiers: [
+      { fromLoc: 3, units: [
+        { kind: 'elite',   count: 1 },
+        { kind: 'regular', count: 3 },
+        { kind: 'ranged',  count: 1 },
+      ]},
+      { fromLoc: 6, units: [
+        { kind: 'elite',   count: 1 },
+        { kind: 'heavy',   count: 1 },
+        { kind: 'regular', count: 3 },
+        { kind: 'ranged',  count: 1 },
+      ]},
+      { fromLoc: 10, units: [
+        { kind: 'elite',   count: 1 },
+        { kind: 'heavy',   count: 1 },
+        { kind: 'regular', count: 3 },
+        { kind: 'ranged',  count: 2 },
+      ]},
+      { fromLoc: 15, units: [
+        { kind: 'elite',   count: 2 },
+        { kind: 'heavy',   count: 1 },
+        { kind: 'regular', count: 3 },
+        { kind: 'ranged',  count: 2 },
+      ]},
     ],
   },
   heavy_pack: {
     label: 'тяжёлая банда',
-    units: [
-      { kind: 'heavy',   count: 1 },
-      { kind: 'regular', count: 2 },
+    tiers: [
+      { fromLoc: 3, units: [
+        { kind: 'heavy',  count: 1 },
+        { kind: 'ranged', count: 1 },
+      ]},
+      { fromLoc: 6, units: [
+        { kind: 'heavy',   count: 2 },
+        { kind: 'ranged',  count: 1 },
+        { kind: 'regular', count: 1 },
+      ]},
+      { fromLoc: 10, units: [
+        { kind: 'heavy',   count: 2 },
+        { kind: 'ranged',  count: 1 },
+        { kind: 'regular', count: 2 },
+      ]},
+      { fromLoc: 15, units: [
+        { kind: 'heavy',   count: 2 },
+        { kind: 'ranged',  count: 2 },
+        { kind: 'regular', count: 1 },
+        { kind: 'elite',   count: 1 },
+      ]},
     ],
   },
   boss_with_minions: {
     label: 'БОСС+банда',
-    units: [
-      { kind: 'boss',    count: 1 },
-      { kind: 'regular', count: 3, scaleHp: 0.5, scaleDmg: 0.8, scaleRadius: 0.9 },
+    tiers: [
+      { fromLoc: 3, units: [
+        { kind: 'boss',    count: 1 },
+        { kind: 'regular', count: 3, scaleHp: 0.5, scaleDmg: 0.8, scaleRadius: 0.9 },
+      ]},
+      { fromLoc: 6, units: [
+        { kind: 'boss',    count: 1 },
+        { kind: 'regular', count: 2 },
+        { kind: 'heavy',   count: 1 },
+        { kind: 'ranged',  count: 1 },
+      ]},
+      { fromLoc: 10, units: [
+        { kind: 'boss',    count: 1 },
+        { kind: 'elite',   count: 1 },
+        { kind: 'heavy',   count: 1 },
+        { kind: 'ranged',  count: 1 },
+        { kind: 'regular', count: 2 },
+      ]},
+      { fromLoc: 15, units: [
+        { kind: 'boss',    count: 1 },
+        { kind: 'elite',   count: 1 },
+        { kind: 'heavy',   count: 2 },
+        { kind: 'ranged',  count: 2 },
+        { kind: 'regular', count: 2 },
+      ]},
     ],
   },
 };
+
+// Helper — выбор актуального тира по локации.
+function pickTier(tiers, loc) {
+  let chosen = tiers[0];
+  for (const t of tiers) {
+    if (loc >= t.fromLoc) chosen = t;
+  }
+  return chosen;
+}
+
+export function getSpecialArenaUnits(typeName, loc) {
+  const def = SPECIAL_ARENAS[typeName];
+  if (!def) return [];
+  return pickTier(def.tiers, loc).units;
+}
+
+// Стандартная элит-арена (вне спец-замены) — тоже эскалирует.
+// L1-2: одиночный байкер (учим). L3+ постепенно становится мини-бандой.
+// Финальная композиция (2 элиты + банда) активируется на L15+, синхронно с пиком pack-тиров.
+function getStandardEliteUnits(loc) {
+  if (loc <= 2)  return [{ kind: 'elite', count: 1 }];
+  if (loc <= 7)  return [{ kind: 'elite', count: 1 }, { kind: 'regular', count: 2 }];
+  if (loc <= 14) return [
+    { kind: 'elite',   count: 1 },
+    { kind: 'heavy',   count: 1 },
+    { kind: 'regular', count: 2 },
+    { kind: 'ranged',  count: 1 },
+  ];
+  return [
+    { kind: 'elite',   count: 2 },
+    { kind: 'heavy',   count: 1 },
+    { kind: 'regular', count: 2 },
+    { kind: 'ranged',  count: 1 },
+  ];
+}
 
 // Подписи арен для UI (HUD, label на канвасе)
 const ARENA_TYPE_LABELS = {
@@ -204,7 +353,7 @@ export function getArenaComposition(arenaIndex, locationIndex) {
     return { type: 'boss', units: [{ kind: 'boss', count: 1 }] };
   }
   if (arenaIndex % eliteArenaInterval === 0) {
-    return { type: 'elite', units: [{ kind: 'elite', count: 1 }] };
+    return { type: 'elite', units: getStandardEliteUnits(locationIndex) };
   }
   const count = Math.min(
     regularEnemyCap(locationIndex),
@@ -229,5 +378,5 @@ export function rollArenaComposition(arenaIndex, locationIndex) {
   const replacementFn = SPECIAL_REPLACEMENT[base.type];
   if (!replacementFn) return base;
   const replacementType = replacementFn();
-  return { type: replacementType, units: SPECIAL_ARENAS[replacementType].units };
+  return { type: replacementType, units: getSpecialArenaUnits(replacementType, locationIndex) };
 }

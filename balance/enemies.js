@@ -144,14 +144,18 @@ export function arenasForLocation(locationIndex) {
 
 export const SPECIAL_SPAWN = {
   startFromLocation: 3,         // L1-L2 без твистов — обучение core-механикам
-  perLocationIncrement: 0.10,
-  maxChance: 0.60,
+  startChance: 0.10,            // L3 = 10%
+  perLocationIncrement: 0.05,   // +5% за локацию (плавный рост 10% → 60% за 10 локаций)
+  maxChance: 0.60,              // cap на L13+
 };
 
 export function specialSpawnChance(locationIndex) {
   if (locationIndex < SPECIAL_SPAWN.startFromLocation) return 0;
-  const steps = locationIndex - SPECIAL_SPAWN.startFromLocation + 1;
-  return Math.min(SPECIAL_SPAWN.maxChance, steps * SPECIAL_SPAWN.perLocationIncrement);
+  const steps = locationIndex - SPECIAL_SPAWN.startFromLocation;
+  return Math.min(
+    SPECIAL_SPAWN.maxChance,
+    SPECIAL_SPAWN.startChance + steps * SPECIAL_SPAWN.perLocationIncrement
+  );
 }
 
 // Спец-арены — теперь с тирированной композицией. Каждый pack-type имеет несколько тиров,
@@ -192,17 +196,17 @@ export const SPECIAL_ARENAS = {
         { kind: 'regular', count: 2, scaleHp: 0.7 },
       ]},
       { fromLoc: 6, units: [
-        { kind: 'ranged',  count: 3 },
-        { kind: 'regular', count: 2 },
+        { kind: 'ranged',  count: 2 },
+        { kind: 'regular', count: 3 },
       ]},
       { fromLoc: 10, units: [
         { kind: 'ranged',  count: 3 },
-        { kind: 'regular', count: 2 },
+        { kind: 'regular', count: 3 },
       ]},
       { fromLoc: 15, units: [
         { kind: 'ranged',  count: 4 },
         { kind: 'elite',   count: 1 },
-        { kind: 'regular', count: 1 },
+        { kind: 'regular', count: 2 },
       ]},
     ],
   },
@@ -241,17 +245,17 @@ export const SPECIAL_ARENAS = {
         { kind: 'heavy',  count: 1 },
         { kind: 'ranged', count: 1 },
       ]},
-      { fromLoc: 6, units: [
+      { fromLoc: 10, units: [
         { kind: 'heavy',   count: 2 },
         { kind: 'ranged',  count: 1 },
         { kind: 'regular', count: 1 },
       ]},
-      { fromLoc: 10, units: [
+      { fromLoc: 13, units: [
         { kind: 'heavy',   count: 2 },
         { kind: 'ranged',  count: 1 },
         { kind: 'regular', count: 2 },
       ]},
-      { fromLoc: 15, units: [
+      { fromLoc: 17, units: [
         { kind: 'heavy',   count: 2 },
         { kind: 'ranged',  count: 2 },
         { kind: 'regular', count: 1 },
@@ -362,21 +366,49 @@ export function getArenaComposition(arenaIndex, locationIndex) {
   return { type: 'regular', units: [{ kind: 'regular', count }] };
 }
 
-// Бросает рандом — шанс заменить стандартную арену на спец-вариант.
-// Используется реальной игрой (buildLocation), не симулятором.
-// regular → swarm | ranged_pack (50/50). elite → mixed_pack | heavy_pack (50/50).
-const SPECIAL_REPLACEMENT = {
-  boss:    () => 'boss_with_minions',
-  elite:   () => Math.random() < 0.5 ? 'mixed_pack' : 'heavy_pack',
-  regular: () => Math.random() < 0.5 ? 'swarm' : 'ranged_pack',
+// Расписание открытия пак-типов: новый тип за локацию, чтобы игрок постепенно
+// учил каждый новый паттерн (AOE → ranged → mixed → heavy → boss+minions).
+// До unlock'а пак-тип не появляется, даже если specialSpawnChance > 0.
+export const PACK_UNLOCK_LOCATION = {
+  swarm:             3,
+  ranged_pack:       4,
+  mixed_pack:        5,
+  heavy_pack:        6,
+  boss_with_minions: 7,
 };
+
+function pickRandom(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+// Возвращает массив пак-типов, доступных для замены данного base.type на данной локации.
+// Пустой массив → замены не будет (base композиция остаётся).
+function availablePacksFor(baseType, loc) {
+  const u = PACK_UNLOCK_LOCATION;
+  if (baseType === 'regular') {
+    const opts = [];
+    if (loc >= u.swarm)       opts.push('swarm');
+    if (loc >= u.ranged_pack) opts.push('ranged_pack');
+    return opts;
+  }
+  if (baseType === 'elite') {
+    const opts = [];
+    if (loc >= u.mixed_pack) opts.push('mixed_pack');
+    if (loc >= u.heavy_pack) opts.push('heavy_pack');
+    return opts;
+  }
+  if (baseType === 'boss') {
+    return loc >= u.boss_with_minions ? ['boss_with_minions'] : [];
+  }
+  return [];
+}
 
 export function rollArenaComposition(arenaIndex, locationIndex) {
   const base = getArenaComposition(arenaIndex, locationIndex);
   const chance = specialSpawnChance(locationIndex);
   if (Math.random() >= chance) return base;
-  const replacementFn = SPECIAL_REPLACEMENT[base.type];
-  if (!replacementFn) return base;
-  const replacementType = replacementFn();
+  const opts = availablePacksFor(base.type, locationIndex);
+  if (opts.length === 0) return base;
+  const replacementType = pickRandom(opts);
   return { type: replacementType, units: getSpecialArenaUnits(replacementType, locationIndex) };
 }

@@ -7,6 +7,7 @@ import { loadoutState, addShard, addGachaToken, unlockAll } from './loadout.js';
 import { inventoryState, addItem, rollBossDrop, resetInventory } from './inventory.js';
 import { hubState, resetHubState, getTrainerLevelCap } from '../hub/state.js';
 import { resetBarState } from './bar_state.js';
+import * as ftue from './ftue.js';
 import { wipeSave } from './save.js';
 import { renderHub } from '../hub/ui.js';
 import { logEvent } from './logger.js';
@@ -66,6 +67,11 @@ export function bindDevPanel(ctx) {
     ctx.world.nuts = (ctx.world.nuts || 0) + 20;
     refreshIfHub();
   });
+  const devEssenceBtn = $('dev-essence');
+  if (devEssenceBtn) devEssenceBtn.addEventListener('click', () => {
+    ctx.world.essence = (ctx.world.essence || 0) + 50;
+    refreshIfHub();
+  });
   $('dev-shards').addEventListener('click', () => {
     for (const id of Object.keys(SKILLS)) {
       if (loadoutState.unlocked.includes(id)) addShard(id, 10);
@@ -101,6 +107,7 @@ export function bindDevPanel(ctx) {
     resetAllProgression();
     resetHubState();
     resetBarState();
+    ftue.reset();
     for (const id of Object.keys(SKILLS)) {
       loadoutState.levels[id] = 1;
       loadoutState.shards[id] = 0;
@@ -111,6 +118,7 @@ export function bindDevPanel(ctx) {
     resetInventory();
     ctx.world.coins = 0;
     ctx.world.nuts = 0;
+    ctx.world.essence = 0;
     wipeSave();
     refreshIfHub();
   });

@@ -52,43 +52,86 @@ export const LOCATION_VALUE_SCALE = 1.10; // +10% к ценности предм
 // Разброс значений вторичных аффиксов внутри одной редкости (±20%).
 export const SECONDARY_AFFIX_VARIANCE = 0.2;
 
+// ───────── Прокачка предметов: эссенция ─────────
+// Эссенция (🔮) — единственный источник прокачки primary affix предмета.
+// Берётся через ручной salvage предмета. Чем выше редкость — тем дороже сжечь, но и больше выхлоп.
+export const SALVAGE_VALUE = {
+  common:    1,
+  good:      3,
+  rare:      8,
+  epic:     20,
+  legendary: 50,
+};
+
+// Максимальный уровень прокачки primary affix (cap). Выше нельзя качать.
+export const MAX_UPGRADE_LEVEL_BY_RARITY = {
+  common:    1,
+  good:      2,
+  rare:      3,
+  epic:      4,
+  legendary: 6,
+};
+
+// Стоимость повышения с уровня i на (i+1) в эссенции. Удваивается каждый шаг.
+// L0→L1=5, L1→L2=10, ..., L5→L6=160.
+export const UPGRADE_LEVEL_COSTS = [5, 10, 20, 40, 80, 160];
+
+// Линейный прирост primary affix за уровень прокачки. L1=+10%, L2=+20%, ..., L6=+60%.
+export const UPGRADE_PRIMARY_PER_LEVEL = 0.10;
+
 // Таблицы редкости дропа по локации. Ключи — id редкости из RARITIES, значения — веса.
-// Цель: первый эпик у среднего игрока ~через 2 часа активной игры (~30-40 забегов).
-// Эпики начинают капать с L4 босса (5%), L7 элиты, L10 регуляров.
+// Кривая растянута так, чтобы пик пришёлся на L15+ (а не L10+ как раньше),
+// L10-14 — промежуточные ступени для постепенного роста.
 export function bossRarityWeights(loc) {
-  if (loc <= 1) return { common: 60, good: 40 };
-  if (loc <= 2) return { common: 40, good: 55, rare: 5 };
-  if (loc <= 3) return { common: 20, good: 60, rare: 20 };
-  if (loc <= 4) return { good: 50, rare: 45, epic: 5 };
-  if (loc <= 5) return { good: 30, rare: 55, epic: 14, legendary: 1 };
-  if (loc <= 7) return { good: 15, rare: 55, epic: 27, legendary: 3 };
-  if (loc <= 9) return { rare: 45, epic: 45, legendary: 10 };
+  if (loc <= 1)  return { common: 60, good: 40 };
+  if (loc <= 2)  return { common: 40, good: 55, rare: 5 };
+  if (loc <= 3)  return { common: 20, good: 60, rare: 20 };
+  if (loc <= 4)  return { good: 50, rare: 45, epic: 5 };
+  if (loc <= 5)  return { good: 30, rare: 55, epic: 14, legendary: 1 };
+  if (loc <= 7)  return { good: 15, rare: 55, epic: 27, legendary: 3 };
+  if (loc <= 9)  return { rare: 45, epic: 45, legendary: 10 };
+  if (loc <= 11) return { rare: 38, epic: 50, legendary: 12 };
+  if (loc <= 13) return { rare: 32, epic: 53, legendary: 15 };
+  if (loc <= 14) return { rare: 28, epic: 54, legendary: 18 };
   return                 { rare: 25, epic: 55, legendary: 20 };
 }
 
 export function eliteRarityWeights(loc) {
-  if (loc <= 2) return { common: 100 };
-  if (loc <= 3) return { common: 80, good: 20 };
-  if (loc <= 5) return { common: 60, good: 35, rare: 5 };
-  if (loc <= 7) return { common: 40, good: 45, rare: 14, epic: 1 };
-  if (loc <= 9) return { common: 25, good: 50, rare: 22, epic: 3 };
+  if (loc <= 2)  return { common: 100 };
+  if (loc <= 3)  return { common: 80, good: 20 };
+  if (loc <= 5)  return { common: 60, good: 35, rare: 5 };
+  if (loc <= 7)  return { common: 40, good: 45, rare: 14, epic: 1 };
+  if (loc <= 9)  return { common: 25, good: 50, rare: 22, epic: 3 };
+  if (loc <= 11) return { common: 22, good: 47, rare: 26, epic: 4, legendary: 1 };
+  if (loc <= 13) return { common: 18, good: 43, rare: 31, epic: 7, legendary: 1 };
+  if (loc <= 14) return { common: 17, good: 41, rare: 33, epic: 8, legendary: 1 };
   return                 { common: 15, good: 40, rare: 35, epic: 9, legendary: 1 };
 }
 
 export function regularRarityWeights(loc) {
-  if (loc <= 5) return { common: 100 };
-  if (loc <= 7) return { common: 90, good: 10 };
-  if (loc <= 9) return { common: 75, good: 23, rare: 2 };
+  if (loc <= 5)  return { common: 100 };
+  if (loc <= 7)  return { common: 90, good: 10 };
+  if (loc <= 9)  return { common: 75, good: 23, rare: 2 };
+  if (loc <= 11) return { common: 68, good: 26, rare: 6 };
+  if (loc <= 13) return { common: 64, good: 28, rare: 7, epic: 1 };
+  if (loc <= 14) return { common: 62, good: 29, rare: 8, epic: 1 };
   return                 { common: 60, good: 30, rare: 9, epic: 1 };
 }
 
+// Множитель к primary affix от текущего уровня прокачки предмета (линейный).
+export function getPrimaryUpgradeMultiplier(item) {
+  const lvl = item?.upgradeLevel | 0;
+  return 1 + UPGRADE_PRIMARY_PER_LEVEL * lvl;
+}
+
 // Слой агрегации: сумма primary + secondary всех надетых предметов для нужного стата.
+// Primary учитывает уровень прокачки; secondary — без изменений (по решению дизайна).
 export function getEquipmentBonus(statName, equippedItems = []) {
   let sum = 0;
   for (const item of equippedItems) {
     if (!item) continue;
     if (item.primaryAffix && item.primaryAffix.type === statName) {
-      sum += item.primaryAffix.value;
+      sum += item.primaryAffix.value * getPrimaryUpgradeMultiplier(item);
     }
     if (item.affixes) {
       for (const aff of item.affixes) {

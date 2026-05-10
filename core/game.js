@@ -15,7 +15,7 @@ import {
   bindSkillButtons, updateSkillButtons, showBattleScene,
 } from '../battle/ui.js';
 import {
-  showHubScene, renderHub, bindHubActions, bindCoinsAccessor, bindNutsAccessor,
+  showHubScene, renderHub, bindHubActions, bindCoinsAccessor, bindNutsAccessor, bindEssenceAccessor,
   showTapOverlay, hideTapOverlay,
   renderTapStatic, renderTapDynamic, flashTapFeedback, bindTapButton,
   spawnXpFly, startGachaSpin, showPerkChoiceOverlay,
@@ -28,8 +28,12 @@ import {
   bindHeroStatLevelProvider,
 } from '../hub/state.js';
 import { resetHeroForNewRun, addStatXp, heroState } from './stats_layer.js';
+import * as ftue from './ftue.js';
 import { loadoutState, addGachaToken, rollShardDropForEnemy } from './loadout.js';
-import { addItem, rollDropForEnemy } from './inventory.js';
+import {
+  addItem, rollDropForEnemy, findItem, isItemEquipped,
+  getItemUpgradeCost, getItemSalvageValue, upgradeItem, removeItem,
+} from './inventory.js';
 import { RARITIES, EQUIPMENT_SLOTS } from '../balance/equipment.js';
 import { updateFx, resetFx } from './fx.js';
 
@@ -48,6 +52,7 @@ const world = {
   timeNow: 0,
   coins: 0,
   nuts: 0,
+  essence: 0,
   hero: null,
   location: null,
   camera: { x: 0, y: 0 },
@@ -87,6 +92,7 @@ const world = {
 
 bindCoinsAccessor(() => world.coins);
 bindNutsAccessor(() => world.nuts);
+bindEssenceAccessor(() => world.essence);
 bindWorldForSave(world);
 
 // Загружаем сейв до первого старта боя — статы/инвентарь/локация подхватятся.
@@ -263,6 +269,8 @@ function tick() {
 bindSkillButtons((skillId) => {
   if (scene !== 'battle' || !world.hero) return;
   activateSkill(world.hero, skillId, world);
+  ftue.recordAction('skillCast');
+  // Пульс на кнопке скилла снимем при следующем рендере UI боя.
 });
 
 bindHubActions({
@@ -283,6 +291,7 @@ bindHubActions({
       return true;
     });
     if (ok) {
+      ftue.recordAction('trainerBuy');
       logEvent(`Тренажёр прокачан: ${stat}`, 'kill');
       renderHub();
     } else {
@@ -296,6 +305,7 @@ bindHubActions({
       return true;
     });
     if (ok) {
+      ftue.recordAction('homeUpgrade');
       logEvent(`Дом прокачан: ${buildingId}`, 'kill');
       renderHub();
     } else {
@@ -303,7 +313,35 @@ bindHubActions({
     }
   },
   onBarFight: () => {
+    ftue.recordAction('barFight');
     enterBarFight();
+  },
+  onItemUpgrade: (itemId) => {
+    const item = findItem(itemId);
+    if (!item) return false;
+    const cost = getItemUpgradeCost(item);
+    if (cost == null) return false;
+    if (world.essence < cost) {
+      logEvent('Не хватает эссенции на прокачку', 'warn');
+      return false;
+    }
+    if (!upgradeItem(itemId)) return false;
+    world.essence -= cost;
+    logEvent(`Предмет прокачан до +${item.upgradeLevel}`, 'kill');
+    return true;
+  },
+  onItemSalvage: (itemId) => {
+    const item = findItem(itemId);
+    if (!item) return false;
+    if (isItemEquipped(itemId)) {
+      logEvent('Сначала сними предмет, чтобы распылить', 'warn');
+      return false;
+    }
+    const value = getItemSalvageValue(item);
+    if (!removeItem(itemId)) return false;
+    world.essence += value;
+    logEvent(`Распылено: +${value}🔮`, 'kill');
+    return true;
   },
 });
 

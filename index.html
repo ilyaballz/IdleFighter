@@ -245,6 +245,7 @@
   }
   #hub-hud .row .energy { color: var(--neon-cyan); }
   #hub-hud .row .coins  { color: var(--neon-yellow); }
+  #hub-hud .row #hub-essence { color: #d97aff; }
   #hub-hud .row .loc-info { color: var(--neon-pink); font-family: 'Bungee', sans-serif; font-size: 13px; letter-spacing: 1px; }
   #hub-hud .energy-bar {
     height: 6px;
@@ -352,6 +353,18 @@
   }
   .building-card.stub { opacity: 0.65; }
   .building-card.stub:hover { border-color: var(--panel-border); box-shadow: none; }
+  .building-card.locked {
+    opacity: 0.45;
+    filter: grayscale(0.7);
+    cursor: not-allowed;
+    pointer-events: none;             /* блокируем hover/click — карточка чисто декоративная */
+  }
+  .building-card.locked .lock-hint {
+    color: var(--neon-pink);
+    font-family: 'Bungee', sans-serif;
+    font-size: 10px;
+    letter-spacing: 1px;
+  }
   .building-card .corner-badge {
     position: absolute;
     top: 6px;
@@ -366,6 +379,24 @@
     line-height: 18px;
     padding: 0 5px;
     text-align: center;
+  }
+  .corner-badge.ftue-pulse {
+    background: var(--neon-yellow);
+    color: #1a1226;
+    animation: ftue-pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes ftue-pulse {
+    0%, 100% { transform: scale(1);   box-shadow: 0 0 6px var(--neon-yellow); }
+    50%      { transform: scale(1.2); box-shadow: 0 0 14px var(--neon-yellow); }
+  }
+  .ftue-pulse-btn {
+    animation: ftue-btn-pulse 1.2s ease-in-out infinite;
+    position: relative;
+  }
+  /* outline вместо box-shadow — не перебивает базовый glow .ready/.charges-full */
+  @keyframes ftue-btn-pulse {
+    0%, 100% { outline: 2px solid transparent;     outline-offset: 1px; }
+    50%      { outline: 2px solid var(--neon-yellow); outline-offset: 5px; }
   }
 
   /* Wardrobe */
@@ -450,6 +481,11 @@
     justify-content: space-between;
     align-items: baseline;
   }
+  .item-card .head .head-left {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+  }
   .item-card .rarity-tag {
     font-family: 'Bungee', sans-serif;
     font-size: 10px;
@@ -507,6 +543,85 @@
     letter-spacing: 1px;
   }
   .item-card.equipped .equip-tag::before { content: '✓ НАДЕТ'; }
+  .item-card .upgrade-badge {
+    font-family: 'Bungee', sans-serif;
+    font-size: 11px;
+    color: #d97aff;
+    background: #2a1a3a;
+    border: 1px solid #5a2f7a;
+    border-radius: 4px;
+    padding: 1px 5px;
+    letter-spacing: 0.5px;
+    margin-left: 6px;
+  }
+  .item-card .upgrade-badge.max {
+    color: var(--neon-yellow);
+    border-color: var(--neon-yellow);
+    background: #2e2510;
+    box-shadow: 0 0 6px rgba(255, 210, 63, 0.35);
+  }
+  .item-card .item-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+  }
+  .item-card .item-actions button {
+    flex: 1;
+    min-width: 0;
+    min-height: 48px;            /* выравниваем 1-line (НАДЕТЬ) и 2-line (ПРОКАЧАТЬ −5🔮) */
+    padding: 8px 4px;
+    background: #221635;
+    border: 2px solid var(--panel-border);
+    color: var(--text);
+    font-family: 'Bungee', sans-serif;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+    border-radius: 5px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    line-height: 1.1;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .item-card .item-actions button .cost,
+  .item-card .item-actions button .gain {
+    font-family: 'VT323', monospace;
+    font-size: 13px;
+    letter-spacing: 0;
+  }
+  .item-card .item-actions button .cost { color: var(--neon-yellow); }
+  .item-card .item-actions button .gain { color: #5be35b; }
+  .item-card .upgrade-btn:not(:disabled) {
+    color: var(--neon-yellow);
+  }
+  .item-card .upgrade-btn:not(:disabled):hover { background: #2a2510; }
+  .item-card .salvage-btn:not(:disabled) {
+    color: var(--neon-pink);
+    border-color: var(--neon-pink);
+  }
+  .item-card .salvage-btn:not(:disabled):hover { background: #2a1626; }
+  .item-card .equip-btn:not(:disabled) {
+    color: var(--neon-cyan);
+    border-color: var(--neon-cyan);
+  }
+  .item-card .equip-btn:not(:disabled):hover { background: #16263a; }
+  .item-card .equip-btn.unequip:not(:disabled) {
+    color: var(--neon-pink);
+    border-color: var(--neon-pink);
+  }
+  .item-card .equip-btn.unequip:not(:disabled):hover { background: #2a1626; }
+  .item-card .item-actions button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    color: var(--dim);
+  }
+  .item-card .item-actions button:disabled .cost,
+  .item-card .item-actions button:disabled .gain {
+    color: var(--dim);
+  }
 
   .ward-action-btn {
     margin-top: 4px;
@@ -1555,6 +1670,7 @@
         <span class="loc-info" id="hub-loc-info">ЛОКАЦИЯ 1</span>
         <span class="coins" id="hub-coins">💰 0</span>
         <span class="coins" id="hub-nuts">🔩 0</span>
+        <span class="coins" id="hub-essence">🔮 0</span>
       </div>
       <div class="row">
         <span class="energy" id="hub-energy-text">⚡ 100/100</span>
@@ -1693,6 +1809,7 @@
   <button id="dev-energy">+100 энергии</button>
   <button id="dev-coins">+5000 монет</button>
   <button id="dev-nuts">+20 гаек</button>
+  <button id="dev-essence">+50 эссенции</button>
   <button id="dev-shards">+10 шардов всем скиллам</button>
   <button id="dev-gacha-token">+1 жетон гачи</button>
   <button id="dev-epic-item">+1 случайный эпик</button>

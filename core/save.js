@@ -10,6 +10,7 @@ import { loadoutState } from './loadout.js';
 import { inventoryState, getNextItemId, setNextItemId } from './inventory.js';
 import { hubState } from '../hub/state.js';
 import { barState } from './bar_state.js';
+import * as ftue from './ftue.js';
 
 const STORAGE_KEY = 'streetbrawler_save_v1';
 const SAVE_VERSION = 1;
@@ -24,8 +25,9 @@ export function saveGame() {
     version: SAVE_VERSION,
     timestamp: Date.now(),
     world: {
-      coins: worldRef.coins | 0,
-      nuts:  worldRef.nuts  | 0,
+      coins:   worldRef.coins   | 0,
+      nuts:    worldRef.nuts    | 0,
+      essence: worldRef.essence | 0,
     },
     hero: {
       levels: { ...heroState.levels },
@@ -53,6 +55,7 @@ export function saveGame() {
         id: it.id,
         slot: it.slot,
         rarity: it.rarity,
+        upgradeLevel: it.upgradeLevel | 0,
         primaryAffix: { ...it.primaryAffix },
         affixes: it.affixes.map(a => ({ ...a })),
       })),
@@ -66,6 +69,7 @@ export function saveGame() {
       ownedPerks: { ...barState.ownedPerks },
       pendingChoice: barState.pendingChoice ? [...barState.pendingChoice] : null,
     },
+    ftue: ftue.serialize(),
   };
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -86,8 +90,9 @@ export function loadGame() {
   if (data?.version !== SAVE_VERSION) return false;
 
   // World
-  worldRef.coins = data.world?.coins ?? 0;
-  worldRef.nuts  = data.world?.nuts  ?? 0;
+  worldRef.coins   = data.world?.coins   ?? 0;
+  worldRef.nuts    = data.world?.nuts    ?? 0;
+  worldRef.essence = data.world?.essence ?? 0;
 
   // Hero
   for (const s of ['strength', 'toughness', 'agility']) {
@@ -114,7 +119,11 @@ export function loadGame() {
   // Inventory
   inventoryState.items.length = 0;
   if (Array.isArray(data.inventory?.items)) {
-    for (const it of data.inventory.items) inventoryState.items.push(it);
+    for (const it of data.inventory.items) {
+      // Back-compat: старые сейвы без upgradeLevel — подставляем 0.
+      if (it.upgradeLevel == null) it.upgradeLevel = 0;
+      inventoryState.items.push(it);
+    }
   }
   for (const k of Object.keys(inventoryState.equipped)) inventoryState.equipped[k] = null;
   if (data.inventory?.equipped) Object.assign(inventoryState.equipped, data.inventory.equipped);
@@ -126,6 +135,9 @@ export function loadGame() {
   if (typeof data.bar?.medals === 'number')      barState.medals = data.bar.medals;
   barState.ownedPerks = data.bar?.ownedPerks ? { ...data.bar.ownedPerks } : {};
   barState.pendingChoice = data.bar?.pendingChoice ? [...data.bar.pendingChoice] : null;
+
+  // FTUE — back-compat: старые сейвы без блока → reset, флаги остаются дефолтные false.
+  if (data.ftue) ftue.deserialize(data.ftue);
 
   return true;
 }

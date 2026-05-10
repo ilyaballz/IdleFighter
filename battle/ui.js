@@ -5,6 +5,7 @@ import { SKILLS } from '../balance/skills.js';
 import { arenaTypeLabel } from '../balance/enemies.js';
 import { loadoutState, getSkillLevel } from '../core/loadout.js';
 import { SKILL_ICONS } from '../core/skill_meta.js';
+import * as ftue from '../core/ftue.js';
 
 const $ = (id) => document.getElementById(id);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
@@ -31,6 +32,8 @@ export function updateHud(world) {
 
 export function updateSkillButtons(hero) {
   const buttons = $$('#skill-bar .skill-btn');
+  // FTUE: пульсируем кнопку первого скилла в первом бою, пока игрок ни разу не кастанул вручную.
+  const ftueSkillPulse = ftue.pulseIfPending('skillCast') !== '';
   for (let i = 0; i < buttons.length; i++) {
     const btn = buttons[i];
     const skillId = loadoutState.selected[i];
@@ -41,7 +44,7 @@ export function updateSkillButtons(hero) {
     const lvlEl = btn.querySelector('.lvl');
     const iconEl = btn.querySelector('.icon');
 
-    btn.classList.remove('ready', 'charges-full', 'empty');
+    btn.classList.remove('ready', 'charges-full', 'empty', 'ftue-pulse-btn');
     if (!skillId || !SKILLS[skillId]) {
       btn.classList.add('empty');
       nameEl.textContent = '—';
@@ -74,6 +77,12 @@ export function updateSkillButtons(hero) {
       cd.style.setProperty('--cd-pct', 0);
       cdText.textContent = `${cur}/${maxCh}`;
       if (cur >= minCh) btn.classList.add('charges-full');
+    }
+
+    // FTUE: пульс на первом готовом скилле — учим что их можно жать руками.
+    if (ftueSkillPulse && i === 0
+        && (btn.classList.contains('ready') || btn.classList.contains('charges-full'))) {
+      btn.classList.add('ftue-pulse-btn');
     }
   }
 }

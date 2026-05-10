@@ -4,6 +4,7 @@ import {
   EQUIPMENT_SLOTS, RARITIES, PRIMARY_AFFIX_BASE,
   SECONDARY_AFFIXES, LOCATION_VALUE_SCALE, SECONDARY_AFFIX_VARIANCE,
   bossRarityWeights, eliteRarityWeights, regularRarityWeights,
+  SALVAGE_VALUE, MAX_UPGRADE_LEVEL_BY_RARITY, UPGRADE_LEVEL_COSTS,
 } from '../balance/equipment.js';
 import { ENEMY_BASE, ELITE_BASE, BOSS_BASE } from '../balance/enemies.js';
 
@@ -59,6 +60,7 @@ export function generateItem(slotId, rarityId, locationLevel = 1) {
     id: `item_${nextItemId++}`,
     slot: slotId,
     rarity: rarityId,
+    upgradeLevel: 0,
     primaryAffix: { type: slot.primaryStat, value: primaryValue },
     affixes,
   };
@@ -155,4 +157,60 @@ export function resetInventory() {
   for (const k of Object.keys(inventoryState.equipped)) {
     inventoryState.equipped[k] = null;
   }
+}
+
+// ───────── Прокачка / Распыление (salvage) ─────────
+
+export function getItemUpgradeMaxLevel(item) {
+  if (!item) return 0;
+  return MAX_UPGRADE_LEVEL_BY_RARITY[item.rarity] || 0;
+}
+
+export function isItemAtMaxUpgrade(item) {
+  return (item?.upgradeLevel | 0) >= getItemUpgradeMaxLevel(item);
+}
+
+// Стоимость следующего уровня прокачки. null если уже на cap'е.
+export function getItemUpgradeCost(item) {
+  if (!item || isItemAtMaxUpgrade(item)) return null;
+  return UPGRADE_LEVEL_COSTS[item.upgradeLevel | 0];
+}
+
+// Сумма всей вложенной эссенции в апгрейды этого предмета (для возврата при salvage).
+export function getInvestedEssence(item) {
+  const lvl = item?.upgradeLevel | 0;
+  let sum = 0;
+  for (let i = 0; i < lvl; i++) sum += UPGRADE_LEVEL_COSTS[i] || 0;
+  return sum;
+}
+
+// Цена распыления = база редкости + 100% возврат вложенной эссенции.
+export function getItemSalvageValue(item) {
+  if (!item) return 0;
+  return (SALVAGE_VALUE[item.rarity] || 0) + getInvestedEssence(item);
+}
+
+export function isItemEquipped(itemId) {
+  for (const slot of Object.keys(inventoryState.equipped)) {
+    if (inventoryState.equipped[slot] === itemId) return true;
+  }
+  return false;
+}
+
+// Поднимает upgradeLevel на 1 (без проверки эссенции — тратит вызывающий).
+// Возвращает true если получилось.
+export function upgradeItem(itemId) {
+  const item = findItem(itemId);
+  if (!item || isItemAtMaxUpgrade(item)) return false;
+  item.upgradeLevel = (item.upgradeLevel | 0) + 1;
+  return true;
+}
+
+// Удаляет предмет из инвентаря (используется при salvage). Надетый — не трогаем.
+export function removeItem(itemId) {
+  if (isItemEquipped(itemId)) return false;
+  const idx = inventoryState.items.findIndex(i => i.id === itemId);
+  if (idx < 0) return false;
+  inventoryState.items.splice(idx, 1);
+  return true;
 }

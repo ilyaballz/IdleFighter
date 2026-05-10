@@ -17,10 +17,14 @@ import {
 import { HOME_UPGRADES } from '../balance/home.js';
 import { BAR, PERKS_PER_CHOICE, findPerk } from '../balance/bar.js';
 import { barState, getNextTicketSec, takePerk } from '../core/bar_state.js';
-import { EQUIPMENT_SLOTS, RARITIES } from '../balance/equipment.js';
+import {
+  EQUIPMENT_SLOTS, RARITIES, getPrimaryUpgradeMultiplier,
+} from '../balance/equipment.js';
 import {
   inventoryState, equipItem, unequipSlot,
   getEquippedItemForSlot, getItemsForSlot,
+  getItemUpgradeCost, getItemUpgradeMaxLevel, getItemSalvageValue,
+  isItemAtMaxUpgrade,
 } from '../core/inventory.js';
 import {
   SKILL_ICONS, SKILL_SHORT_NAMES,
@@ -28,6 +32,7 @@ import {
 } from '../core/skill_meta.js';
 import { logEvent } from '../core/logger.js';
 import { hideDefeat, hideVictory } from '../battle/ui.js';
+import * as ftue from '../core/ftue.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -80,6 +85,12 @@ let currentHubScreen = 'home';
 
 export function showHubScreen(name) {
   if (!HUB_SCREENS.includes(name)) name = 'home';
+  // Залоченные здания — клики игнорируются (защита на случай если pointer-events не сработал).
+  if (name !== 'home') {
+    const card = ftue.buildingCardState(name, hubState.currentLocationIndex);
+    if (!card.unlocked) return;
+    ftue.recordScreenVisit(name);
+  }
   currentHubScreen = name;
   for (const s of HUB_SCREENS) {
     const el = $(`hub-${s}`);
@@ -138,6 +149,8 @@ export function renderHub() {
   $('hub-coins').textContent = `💰 ${currentCoins()}`;
   const nutsEl = $('hub-nuts');
   if (nutsEl) nutsEl.textContent = `🔩 ${currentNuts()}`;
+  const essEl = $('hub-essence');
+  if (essEl) essEl.textContent = `🔮 ${currentEssence()}`;
   const eMax = getEffectiveEnergyMax();
   const eCur = Math.floor(hubState.energy);
   $('hub-energy-text').textContent = `⚡ ${eCur} / ${eMax}`;
@@ -150,30 +163,61 @@ export function renderHub() {
   refreshCurrentHubScreen();
 }
 
+// Есть ли в инвентаре предмет, под который слот пустой → имеет смысл подсветить гардероб.
+function hasUnequippedItemForEmptySlot() {
+  for (const slotId of Object.keys(EQUIPMENT_SLOTS)) {
+    if (inventoryState.equipped[slotId]) continue;          // слот уже занят
+    if (getItemsForSlot(slotId).length > 0) return true;    // есть свободный предмет под пустой слот
+  }
+  return false;
+}
+
 function renderBuildings() {
   const grid = $('buildings-grid');
   if (!grid) return;
   const tokens = loadoutState.gachaTokens || 0;
+  const loc = hubState.currentLocationIndex;
+  // action — есть полезное действие (жёлтый «!» с пульсом).
+  // info   — справочная цифра (нейтральный pink-бейдж), показывается только если нет action.
   const buildings = [
-    { id: 'gym', icon: '🏋️', name: 'КАЧАЛКА', hint: 'тренажёры и тапы' },
-    { id: 'house', icon: '🏠', name: 'ДОМ', hint: 'апгрейды энергии' },
-    { id: 'bar', icon: '🍻', name: 'БАР', hint: barHubHint(),
-      cornerBadge: barState.pendingChoice ? '!' : (barState.tickets > 0 ? barState.tickets : null) },
+    { id: 'gym',     icon: '🏋️', name: 'КАЧАЛКА',  hint: 'тренажёры и тапы' },
+    { id: 'house',   icon: '🏠', name: 'ДОМ',      hint: 'апгрейды энергии' },
+    { id: 'bar',     icon: '🍻', name: 'БАР',      hint: barHubHint(),
+      action: barState.pendingChoice != null,
+      info:   barState.tickets > 0 ? barState.tickets : null },
     { id: 'arsenal', icon: '🥋', name: 'АРСЕНАЛ',
       hint: tokens > 0 ? `🎰 ${tokens} жетон.` : 'скиллы / лоадаут',
-      cornerBadge: tokens > 0 ? tokens : null },
-    { id: 'wardrobe', icon: '👕', name: 'ГАРДЕРОБ',
+      action: tokens > 0 },
+    { id: 'wardrobe',icon: '👕', name: 'ГАРДЕРОБ',
       hint: `${inventoryState.items.length} предм.`,
-      cornerBadge: inventoryState.items.length > 0 ? inventoryState.items.length : null },
+      action: hasUnequippedItemForEmptySlot() },
   ];
-  grid.innerHTML = buildings.map(b => `
-    <div class="building-card${b.stub ? ' stub' : ''}" data-screen="${b.id}">
-      ${b.cornerBadge != null ? `<span class="corner-badge">${b.cornerBadge}</span>` : ''}
-      <div class="icon">${b.icon}</div>
-      <div class="name">${b.name}</div>
-      <div class="hint${b.badge ? ' badge' : ''}">${b.hint}</div>
-    </div>
-  `).join('');
+
+  grid.innerHTML = buildings.map(b => {
+    const fcard = ftue.buildingCardState(b.id, loc);
+    if (!fcard.unlocked) {
+      return `
+        <div class="building-card locked">
+          <div class="icon">${b.icon}</div>
+          <div class="name">${b.name}</div>
+          <div class="hint lock-hint">${fcard.lockHint}</div>
+        </div>
+      `;
+    }
+    // Приоритет: жёлтый «!» (FTUE первый раз ИЛИ доступное действие) → инфо-число → ничего.
+    const showAlert = fcard.showFtueBadge || b.action;
+    const cornerHtml = showAlert
+      ? `<span class="corner-badge ftue-pulse">!</span>`
+      : (b.info != null ? `<span class="corner-badge">${b.info}</span>` : '');
+    return `
+      <div class="building-card" data-screen="${b.id}">
+        ${cornerHtml}
+        <div class="icon">${b.icon}</div>
+        <div class="name">${b.name}</div>
+        <div class="hint">${b.hint}</div>
+      </div>
+    `;
+  }).join('');
 }
 
 function renderStatsPanel() {
@@ -201,6 +245,10 @@ function currentCoins() { return coinsAccessor(); }
 let nutsAccessor = () => 0;
 export function bindNutsAccessor(getNutsFn) { nutsAccessor = getNutsFn; }
 function currentNuts() { return nutsAccessor(); }
+
+let essenceAccessor = () => 0;
+export function bindEssenceAccessor(getEssenceFn) { essenceAccessor = getEssenceFn; }
+function currentEssence() { return essenceAccessor(); }
 
 // ───────── Тренажёры ─────────
 
@@ -236,6 +284,8 @@ function renderTrainers() {
     // XP-бар: при cap'е показываем как полный (визуально замороженный).
     const xpFillPct = info.atCap ? 100 : (xp.current / xp.needed) * 100;
     const xpText = info.atCap ? `CAP достигнут` : `XP ${Math.floor(xp.current)}/${xp.needed}`;
+    // FTUE: пульсируем «КУПИТЬ T1» если игрок ещё ни разу не покупал тренажёр и есть монеты.
+    const ftueBuyPulse = info.isLocked && canUpgrade && ftue.pulseIfPending('trainerBuy');
     card.innerHTML = `
       <div class="head">
         <div>
@@ -251,7 +301,7 @@ function renderTrainers() {
         <span>${tierLabel}</span>
       </div>
       <div class="actions">
-        <button class="upgrade" ${canUpgrade ? '' : 'disabled'}>${upgradeLabel}</button>
+        <button class="upgrade${ftueBuyPulse ? ' ftue-pulse-btn' : ''}" ${canUpgrade ? '' : 'disabled'}>${upgradeLabel}</button>
         <button class="primary train" ${canTrain ? '' : 'disabled'}>${trainLabel}</button>
       </div>
     `;
@@ -265,11 +315,15 @@ let onTrainerUpgrade = () => {};
 let onTrainerStart  = () => {};
 let onHomeUpgrade   = () => {};
 let onBarFight      = () => {};
+let onItemUpgrade   = () => false;
+let onItemSalvage   = () => false;
 export function bindHubActions(handlers) {
   if (handlers.onTrainerUpgrade) onTrainerUpgrade = handlers.onTrainerUpgrade;
   if (handlers.onTrainerStart)   onTrainerStart   = handlers.onTrainerStart;
   if (handlers.onHomeUpgrade)    onHomeUpgrade    = handlers.onHomeUpgrade;
   if (handlers.onBarFight)       onBarFight       = handlers.onBarFight;
+  if (handlers.onItemUpgrade)    onItemUpgrade    = handlers.onItemUpgrade;
+  if (handlers.onItemSalvage)    onItemSalvage    = handlers.onItemSalvage;
 }
 
 // ───────── Дом (апгрейды) ─────────
@@ -338,7 +392,7 @@ function renderBar() {
       <span class="next-ticket-text">${PERKS_PER_CHOICE - (barState.medals % PERKS_PER_CHOICE)} побед</span>
     </div>
     ${pendingHtml}
-    <button class="fight-btn" id="bar-fight-btn" ${canFight ? '' : 'disabled'}>
+    <button class="fight-btn${canFight && ftue.pulseIfPending('barFight') ? ' ftue-pulse-btn' : ''}" id="bar-fight-btn" ${canFight ? '' : 'disabled'}>
       ⚔️ В РИНГ (1 🎟️)
     </button>
   `;
@@ -402,11 +456,13 @@ function renderHouse() {
   const root = $('house-list');
   if (!root) return;
   root.innerHTML = '';
+  const homeFtuePulse = ftue.pulseIfPending('homeUpgrade');
   for (const buildingId of Object.keys(HOME_UPGRADES)) {
     const info = getHomeBuildingInfo(buildingId);
     const card = document.createElement('div');
     card.className = 'trainer-card';
     const canUpgrade = !info.isMaxTier && currentNuts() >= info.nextNutCost;
+    const showPulse = canUpgrade && homeFtuePulse;
     const curStr = formatHomeValue(buildingId, info.currentValue);
     const nextStr = info.nextValue != null ? formatHomeValue(buildingId, info.nextValue) : '—';
     card.innerHTML = `
@@ -422,7 +478,7 @@ function renderHouse() {
         ${info.isMaxTier ? '' : `<span>далее: <span style="color:var(--neon-yellow)">${nextStr}</span></span>`}
       </div>
       <div class="actions">
-        <button class="upgrade primary" ${canUpgrade ? '' : 'disabled'}>${
+        <button class="upgrade primary${showPulse ? ' ftue-pulse-btn' : ''}" ${canUpgrade ? '' : 'disabled'}>${
           info.isMaxTier ? 'МАКС ТИР' : `Прокачать (${info.nextNutCost}🔩)`
         }</button>
       </div>
@@ -571,7 +627,11 @@ const ALL_SKILL_IDS = Object.keys(SKILLS);
 function renderGacha() {
   const tokens = loadoutState.gachaTokens || 0;
   $('gacha-tokens').textContent = tokens;
-  $('gacha-spin').disabled = gachaSpinning || tokens === 0;
+  const spinBtn = $('gacha-spin');
+  spinBtn.disabled = gachaSpinning || tokens === 0;
+  // FTUE: пульс на «КРУТИТЬ» если есть жетон и игрок ещё ни разу не крутил.
+  const ftuePulse = tokens > 0 && !gachaSpinning && ftue.pulseIfPending('gachaSpin');
+  spinBtn.classList.toggle('ftue-pulse-btn', ftuePulse);
   if (gachaSpinning) return;
   $('gacha-result').textContent = '';
   rebuildGachaStrip();
@@ -611,9 +671,11 @@ export function startGachaSpin(onResult) {
 
   gachaSpinning = true;
   consumeGachaToken();
+  ftue.recordAction('gachaSpin');
   $('gacha-tokens').textContent = loadoutState.gachaTokens;
   $('gacha-result').textContent = '';
   $('gacha-spin').disabled = true;
+  $('gacha-spin').classList.remove('ftue-pulse-btn');
 
   const result = rollGachaResult();
   const targetIdx = ALL_SKILL_IDS.indexOf(result.skillId);
@@ -807,11 +869,15 @@ const STAT_DISPLAY = {
   skillCdrPct:    { icon: '⏳', label: 'CDR',      fmt: (v) => `+${(v * 100).toFixed(1)}%` },
 };
 
-function primaryStatHtml(aff) {
+function primaryStatHtml(aff, item) {
   const meta = STAT_DISPLAY[aff.type];
   const icon = meta?.icon || '?';
   const label = meta?.label || aff.type.toUpperCase();
-  const val = meta ? meta.fmt(aff.value) : `+${aff.value}`;
+  const mult = item ? getPrimaryUpgradeMultiplier(item) : 1;
+  const isInt = aff.type === 'damage' || aff.type === 'maxHp';
+  const effRaw = aff.value * mult;
+  const eff = isInt ? Math.round(effRaw) : Math.round(effRaw * 1000) / 1000;
+  const val = meta ? meta.fmt(eff) : `+${eff}`;
   return `<span class="primary-stat">${icon} ${val}<span class="unit">${label}</span></span>`;
 }
 
@@ -823,6 +889,9 @@ function affixPillHtml(aff) {
   return `<span class="affix-pill"><span class="pill-icon">${icon}</span>${val}<span class="pill-label">${label}</span></span>`;
 }
 
+// Подтверждение распыления для rare/epic/legendary. Common/good — без диалога (мусор).
+const RARITY_ORDER = { common: 1, good: 2, rare: 3, epic: 4, legendary: 5 };
+
 function renderItemCard(item, isEquipped) {
   const r = RARITIES[item.rarity];
   const slot = EQUIPMENT_SLOTS[item.slot];
@@ -830,20 +899,87 @@ function renderItemCard(item, isEquipped) {
   div.className = 'item-card' + (isEquipped ? ' equipped' : '');
   div.dataset.itemId = item.id;
   div.style.borderColor = r.color;
+
+  const upLvl = item.upgradeLevel | 0;
+  const upMax = getItemUpgradeMaxLevel(item);
+  const atMax = isItemAtMaxUpgrade(item);
+  const upBadgeHtml = upLvl > 0
+    ? `<span class="upgrade-badge${atMax ? ' max' : ''}">+${upLvl}${atMax ? ' MAX' : ''}</span>`
+    : '';
+
   const affixesHtml = item.affixes.length
     ? `<div class="affix-line">${item.affixes.map(affixPillHtml).join('')}</div>`
     : '';
+
+  const upCost = getItemUpgradeCost(item);
+  const canAffordUp = upCost != null && currentEssence() >= upCost;
+  const upBtnHtml = atMax
+    ? `<button class="upgrade-btn" disabled>MAX +${upMax}</button>`
+    : `<button class="upgrade-btn" ${canAffordUp ? '' : 'disabled'}>ПРОКАЧАТЬ<span class="cost">−${upCost}🔮</span></button>`;
+
+  const salvageValue = getItemSalvageValue(item);
+  const salvageHtml = isEquipped
+    ? `<button class="salvage-btn" disabled title="Сначала сними">РАСПЫЛИТЬ<span class="gain">+${salvageValue}🔮</span></button>`
+    : `<button class="salvage-btn">РАСПЫЛИТЬ<span class="gain">+${salvageValue}🔮</span></button>`;
+
+  // FTUE: пульсируем «НАДЕТЬ» только на первой ненадетой шмотке, пока игрок ни разу ничего не надевал.
+  const equipPulse = !isEquipped && ftue.pulseIfPending('itemEquip');
+  const equipBtnHtml = isEquipped
+    ? `<button class="equip-btn unequip">СНЯТЬ</button>`
+    : `<button class="equip-btn${equipPulse ? ' ftue-pulse-btn' : ''}">НАДЕТЬ</button>`;
+
   div.innerHTML = `
     <div class="head">
-      <span class="rarity-tag" style="color:${r.color}">${r.name.toUpperCase()}</span>
+      <span class="head-left">
+        <span class="rarity-tag" style="color:${r.color}">${r.name.toUpperCase()}</span>
+        ${upBadgeHtml}
+      </span>
       ${isEquipped ? '<span class="equip-tag"></span>' : ''}
     </div>
     <div class="slot-row">
       <span class="icon">${slot.icon}</span>${slot.name}
-      ${primaryStatHtml(item.primaryAffix)}
+      ${primaryStatHtml(item.primaryAffix, item)}
     </div>
     ${affixesHtml}
+    <div class="item-actions">
+      ${equipBtnHtml}
+      ${upBtnHtml}
+      ${salvageHtml}
+    </div>
   `;
+
+  div.querySelector('.equip-btn').addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    if (isEquipped) {
+      unequipSlot(item.slot);
+    } else {
+      equipItem(item.id);
+      ftue.recordAction('itemEquip');
+    }
+    renderWardrobe();
+  });
+  div.querySelector('.upgrade-btn').addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    if (atMax || !canAffordUp) return;
+    if (onItemUpgrade(item.id)) {
+      renderHub();
+    }
+  });
+  div.querySelector('.salvage-btn').addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    if (isEquipped) return;
+    const order = RARITY_ORDER[item.rarity] || 0;
+    if (order >= 3) {
+      const confirmed = confirm(
+        `Распылить [${r.name}] ${slot.name}?\n+${salvageValue}🔮 (вложенная эссенция вернётся)`
+      );
+      if (!confirmed) return;
+    }
+    if (onItemSalvage(item.id)) {
+      renderHub();
+    }
+  });
+
   return div;
 }
 
@@ -884,43 +1020,28 @@ function renderWardrobe() {
     eqRoot.appendChild(empty);
   } else {
     eqRoot.appendChild(renderItemCard(equipped, true));
-    const off = document.createElement('button');
-    off.className = 'ward-action-btn';
-    off.textContent = 'Снять';
-    off.addEventListener('click', () => {
-      unequipSlot(currentWardrobeSlot);
-      renderWardrobe();
-    });
-    eqRoot.appendChild(off);
   }
+
+  // Список «в наличии» — без надетого, чтобы не дублировать его в обоих секциях.
+  const nonEquipped = equipped ? all.filter(it => it.id !== equipped.id) : all;
 
   const invRoot = $('wardrobe-inventory');
   invRoot.innerHTML = '';
   const invTitle = document.createElement('h3');
-  invTitle.textContent = `В НАЛИЧИИ (${all.length})`;
+  invTitle.textContent = `В НАЛИЧИИ (${nonEquipped.length})`;
   invRoot.appendChild(invTitle);
-  if (all.length === 0) {
+  if (nonEquipped.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'ward-empty';
-    empty.textContent = 'Нет предметов в этом слоте';
+    empty.textContent = equipped ? 'Других предметов в этом слоте нет' : 'Нет предметов в этом слоте';
     invRoot.appendChild(empty);
     return;
   }
   const rarityOrder = { legendary: 5, epic: 4, rare: 3, good: 2, common: 1 };
-  const sorted = all.slice().sort((a, b) => {
-    if (equipped && a.id === equipped.id) return -1;
-    if (equipped && b.id === equipped.id) return 1;
+  const sorted = nonEquipped.slice().sort((a, b) => {
     return (rarityOrder[b.rarity] || 0) - (rarityOrder[a.rarity] || 0);
   });
   for (const item of sorted) {
-    const isEq = equipped && item.id === equipped.id;
-    const card = renderItemCard(item, isEq);
-    if (!isEq) {
-      card.addEventListener('click', () => {
-        equipItem(item.id);
-        renderWardrobe();
-      });
-    }
-    invRoot.appendChild(card);
+    invRoot.appendChild(renderItemCard(item, false));
   }
 }

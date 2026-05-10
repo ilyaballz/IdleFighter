@@ -55,7 +55,7 @@ export const TRAINER_TIERS = [
   { tier: 0, statMultiplier: 0,   levelCap: 0,  xpPerTap: 0,   upgradeCost: 0 },
   { tier: 1, statMultiplier: 1.0, levelCap: 5,  xpPerTap: 3,   upgradeCost: 50 },
   { tier: 2, statMultiplier: 1.5, levelCap: 10, xpPerTap: 10,  upgradeCost: 250 },
-  { tier: 3, statMultiplier: 2.0, levelCap: 15, xpPerTap: 30,  upgradeCost: 1500 },
+  { tier: 3, statMultiplier: 2.0, levelCap: 15, xpPerTap: 30,  upgradeCost: 2500 },
   { tier: 4, statMultiplier: 2.5, levelCap: 20, xpPerTap: 90,  upgradeCost: 6000 },
-  { tier: 5, statMultiplier: 3.0, levelCap: 25, xpPerTap: 270, upgradeCost: 16500 },
+  { tier: 5, statMultiplier: 3.0, levelCap: 25, xpPerTap: 270, upgradeCost: 15000 },
 ];

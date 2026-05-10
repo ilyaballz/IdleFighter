@@ -98,11 +98,11 @@ export function computeEffectiveStat(
         PLAYER.capDefense);
     }
     case 'skillCdrPct': {
-      return clamp(
-        PLAYER.baseSkillCdrPct
-        + getEquipmentBonus('skillCdrPct', equippedItems)
-        + perk('skillCdrPct'),
-        PLAYER.capSkillCdrPct);
+      // Rate-based CDR — без клэмпа. Diminishing returns встроен в формулу:
+      //   эффCD = baseCD / (1 + rate). См. battle/battle.js skillCooldownAfterCdr.
+      return PLAYER.baseSkillCdrPct
+           + getEquipmentBonus('skillCdrPct', equippedItems)
+           + perk('skillCdrPct');
     }
     case 'hpRegenInBattle': {
       return PLAYER.baseHpRegenInBattle

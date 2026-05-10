@@ -15,8 +15,8 @@ import {
   getHomeBuildingInfo,
 } from './state.js';
 import { HOME_UPGRADES } from '../balance/home.js';
-import { BAR, PERKS_PER_CHOICE, findPerk } from '../balance/bar.js';
-import { barState, getNextTicketSec, takePerk } from '../core/bar_state.js';
+import { BAR } from '../balance/bar.js';
+import { barState, getNextTicketSec } from '../core/bar_state.js';
 import {
   EQUIPMENT_SLOTS, RARITIES, getPrimaryUpgradeMultiplier,
 } from '../balance/equipment.js';
@@ -183,8 +183,8 @@ function renderBuildings() {
     { id: 'gym',     icon: '🏋️', name: 'КАЧАЛКА',  hint: 'тренажёры и тапы' },
     { id: 'house',   icon: '🏠', name: 'ДОМ',      hint: 'апгрейды энергии' },
     { id: 'bar',     icon: '🍻', name: 'БАР',      hint: barHubHint(),
-      action: barState.pendingChoice != null,
-      info:   barState.tickets > 0 ? barState.tickets : null },
+      action: barState.tickets > 0,                          // есть билет = можно подраться
+      info:   null },
     { id: 'arsenal', icon: '🥋', name: 'АРСЕНАЛ',
       hint: tokens > 0 ? `🎰 ${tokens} жетон.` : 'скиллы / лоадаут',
       action: tokens > 0 },
@@ -284,8 +284,9 @@ function renderTrainers() {
     // XP-бар: при cap'е показываем как полный (визуально замороженный).
     const xpFillPct = info.atCap ? 100 : (xp.current / xp.needed) * 100;
     const xpText = info.atCap ? `CAP достигнут` : `XP ${Math.floor(xp.current)}/${xp.needed}`;
-    // FTUE: пульсируем «КУПИТЬ T1» если игрок ещё ни разу не покупал тренажёр и есть монеты.
-    const ftueBuyPulse = info.isLocked && canUpgrade && ftue.pulseIfPending('trainerBuy');
+    // Подсветка кнопки апгрейда — пульсирует всегда когда доступен апгрейд И хватает монет.
+    // Раньше тут был one-shot FTUE-пульс на «первый T1», теперь это persistent action-indicator.
+    const upgradePulse = canUpgrade ? ' ftue-pulse-btn' : '';
     card.innerHTML = `
       <div class="head">
         <div>
@@ -301,7 +302,7 @@ function renderTrainers() {
         <span>${tierLabel}</span>
       </div>
       <div class="actions">
-        <button class="upgrade${ftueBuyPulse ? ' ftue-pulse-btn' : ''}" ${canUpgrade ? '' : 'disabled'}>${upgradeLabel}</button>
+        <button class="upgrade${upgradePulse}" ${canUpgrade ? '' : 'disabled'}>${upgradeLabel}</button>
         <button class="primary train" ${canTrain ? '' : 'disabled'}>${trainLabel}</button>
       </div>
     `;
@@ -353,7 +354,6 @@ function formatTicketCountdown(sec) {
 }
 
 function barHubHint() {
-  if (barState.pendingChoice) return 'выбор перка!';
   return `${barState.tickets}/${BAR.maxTickets} билет.`;
 }
 
@@ -367,9 +367,6 @@ function renderBar() {
   }
   const canFight = barState.tickets > 0;
   const next = formatTicketCountdown(getNextTicketSec());
-  const pendingHtml = barState.pendingChoice
-    ? `<div class="pending-banner" id="bar-open-perk">🎁 Доступен выбор перка — открыть</div>`
-    : '';
   root.innerHTML = `
     <div class="row">
       <span class="lbl">Билеты:</span>
@@ -380,76 +377,22 @@ function renderBar() {
       <span class="next-ticket-text">${next}</span>
     </div>
     <div class="row">
-      <span class="lbl">Медалей собрано:</span>
-      <span class="val">🏅 ${barState.medals}</span>
+      <span class="lbl">Награда:</span>
+      <span class="val">🎰 +1 жетон</span>
+    </div>
+    <div class="row">
+      <span class="lbl">Побед:</span>
+      <span class="val">${barState.medals}</span>
     </div>
     <div class="row">
       <span class="lbl">Следующий босс:</span>
       <span class="val">ур. ${barState.medals + 1}</span>
     </div>
-    <div class="row">
-      <span class="lbl">До след. перка:</span>
-      <span class="next-ticket-text">${PERKS_PER_CHOICE - (barState.medals % PERKS_PER_CHOICE)} побед</span>
-    </div>
-    ${pendingHtml}
     <button class="fight-btn${canFight && ftue.pulseIfPending('barFight') ? ' ftue-pulse-btn' : ''}" id="bar-fight-btn" ${canFight ? '' : 'disabled'}>
       ⚔️ В РИНГ (1 🎟️)
     </button>
   `;
   $('bar-fight-btn').addEventListener('click', () => onBarFight());
-  if (barState.pendingChoice) {
-    $('bar-open-perk').addEventListener('click', showPerkChoiceOverlay);
-  }
-  renderOwnedPerks();
-}
-
-function renderOwnedPerks() {
-  const root = $('bar-perks-owned');
-  if (!root) return;
-  const owned = Object.entries(barState.ownedPerks);
-  if (owned.length === 0) {
-    root.innerHTML = `<h3>ПЕРКИ</h3><div style="color:var(--dim);font-size:13px;">Перков пока нет — бей боссов и копи медали.</div>`;
-    return;
-  }
-  const lines = owned.map(([id, count]) => {
-    const p = findPerk(id);
-    if (!p) return '';
-    return `<div class="perk-line">
-      <span class="icon">${p.icon}</span>
-      <span>${p.name}</span>
-      <span class="stack">×${count}</span>
-      <span class="desc">${p.desc}</span>
-    </div>`;
-  });
-  root.innerHTML = `<h3>ПЕРКИ (${owned.length})</h3>${lines.join('')}`;
-}
-
-export function showPerkChoiceOverlay() {
-  if (!barState.pendingChoice) return;
-  const overlay = $('perk-choice-overlay');
-  const cards = $('perk-choice-cards');
-  cards.innerHTML = '';
-  for (const id of barState.pendingChoice) {
-    const p = findPerk(id);
-    if (!p) continue;
-    const owned = barState.ownedPerks[id] || 0;
-    const card = document.createElement('div');
-    card.className = 'perk-card';
-    card.innerHTML = `
-      <div class="icon">${p.icon}</div>
-      <div class="name">${p.name}</div>
-      <div class="desc">${p.desc}</div>
-      ${owned > 0 ? `<div class="stack-note">уже взят ×${owned} (стэк)</div>` : ''}
-    `;
-    card.addEventListener('click', () => {
-      if (takePerk(id)) {
-        overlay.classList.remove('show');
-        renderHub();
-      }
-    });
-    cards.appendChild(card);
-  }
-  overlay.classList.add('show');
 }
 
 function renderHouse() {
@@ -597,10 +540,10 @@ function renderSkillDetails() {
     ${locked
       ? `<div class="locked-note">Выпадает из гачи — крути жетоны, чтобы открыть.</div>`
       : `
-        <div class="shards-info">шарды: ${shards} / ${upCost}</div>
+        <div class="shards-info">${upCost == null ? 'MAX уровень' : `шарды: ${shards} / ${upCost}`}</div>
         <div class="skill-actions">
           <button class="equip-btn${equipped ? ' unequip' : ''}">${equipped ? 'СНЯТЬ' : 'ЭКВИП'}</button>
-          <button class="upgrade-btn" ${shards >= upCost ? '' : 'disabled'}>+1 ур.</button>
+          <button class="upgrade-btn" ${upCost != null && shards >= upCost ? '' : 'disabled'}>${upCost == null ? 'MAX' : '+1 ур.'}</button>
         </div>
       `}
   `;

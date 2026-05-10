@@ -147,10 +147,54 @@ export const ENEMY_DAMAGE_CURVE = {
   growthRate:    1.3,        // зеркалит HP — мобы кусаются пропорционально HP
 };
 
+// ──────────────────────────────────────────────────────────────────────────
+// MILESTONE-ЛОКИ («boss-walls»)
+// Один список локаций + три кривые силы бампа: HP, damage, legendary boost.
+// Сила бампа интерполируется по индексу milestone'а (0=первый, N-1=последний),
+// а не по локации — то есть curve управляет «насколько ранние milestone-боссы мягче поздних».
+// ──────────────────────────────────────────────────────────────────────────
+
+export const MILESTONE_LOCATIONS = [5, 10, 15];
+
+// Bump к hpMult босса: первый milestone мягкий, последний — жёсткий.
+export const MILESTONE_HP_BUMP_CURVE = {
+  startMult: 1.2,    // bump на первом milestone (L5)
+  endMult:   1.5,    // bump на последнем milestone (L15)
+  curve:     1.0,    // 1=линейно. >1=медленный старт. <1=быстрый старт.
+};
+
+// Bump к damage босса.
+export const MILESTONE_DAMAGE_BUMP_CURVE = {
+  startMult: 1.2,
+  endMult:   1.5,
+  curve:     1.0,
+};
+
+// Аддитивный бонус к weight'у legendary в bossRarityWeights — также по кривой.
+export const MILESTONE_LEGENDARY_BUMP_CURVE = {
+  startMult: 3,
+  endMult:   7,
+  curve:     1.0,
+};
+
+// Раздаёт значения кривой по индексу milestone'а: возвращает map { loc: value }.
+function distributeMilestones(locs, curve) {
+  const out = {};
+  if (locs.length === 0) return out;
+  if (locs.length === 1) { out[locs[0]] = curve.endMult; return out; }
+  for (let i = 0; i < locs.length; i++) {
+    const t = i / (locs.length - 1);
+    out[locs[i]] = curve.startMult + (curve.endMult - curve.startMult) * Math.pow(t, curve.curve);
+  }
+  return out;
+}
+
+const HP_BUMPS  = distributeMilestones(MILESTONE_LOCATIONS, MILESTONE_HP_BUMP_CURVE);
+const DMG_BUMPS = distributeMilestones(MILESTONE_LOCATIONS, MILESTONE_DAMAGE_BUMP_CURVE);
+export const MILESTONE_LEGENDARY_BOOST = distributeMilestones(MILESTONE_LOCATIONS, MILESTONE_LEGENDARY_BUMP_CURVE);
+
 // HP-мультипликатор босса поверх ENEMY_HP_CURVE. L1 — хардкод (100 hp), кривая с L2.
-//
-// locationBumps — «boss-wall» локи: эти конкретные боссы получают доп. множитель.
-// Spike — только на этой локе, соседние не задеваются (L5=×1.5 не влияет на L4 и L6).
+// locationBumps — derived из MILESTONE_HP_BUMP_CURVE + MILESTONE_LOCATIONS.
 export const BOSS_HP_CURVE = {
   mode: 'power',
   startLocation: 2,
@@ -158,11 +202,10 @@ export const BOSS_HP_CURVE = {
   startMult:     10,
   endMult:       25,
   curve:         0.5,
-  locationBumps: { 5: 1.5, 10: 1.6, 15: 1.5 },
+  locationBumps: HP_BUMPS,
 };
 
 // Damage-мультипликатор босса поверх ENEMY_DAMAGE_CURVE.
-// locationBumps — спайки на тех же boss-wall локациях, что и у HP.
 export const BOSS_DAMAGE_CURVE = {
   mode: 'power',
   startLocation: 1,
@@ -170,14 +213,8 @@ export const BOSS_DAMAGE_CURVE = {
   startMult:     2.0,
   endMult:       2.0,
   curve:         0.5,
-  locationBumps: { 5: 1.5, 10: 1.6, 15: 1.5 },
+  locationBumps: DMG_BUMPS,
 };
-
-// Milestone-локи дополнительно повышают шанс легендарного дропа с босса —
-// награда за «пробитие стенки». Значения добавляются к weight'у legendary в bossRarityWeights
-// (см. balance/equipment.js). Вес дальше нормализуется внутри pickWeighted, поэтому 5-10
-// доп. weight'а это +3-8% к итоговому шансу выпадения.
-export const MILESTONE_LEGENDARY_BOOST = { 5: 5, 10: 8, 15: 5 };
 
 // Гайки 🔩 — отдельная валюта для прокачки дома (отделена от монет тренажёров).
 // Дропают только боссы локаций, чтобы накопление гаек = «зачистил локацию = заработал на QOL».

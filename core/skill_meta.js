@@ -132,7 +132,8 @@ export function describeSkillSynergies(id) {
   if (s.dot) lines.push('🩸 цель начинает кровить');
   if (s.appliesMarkedSec) lines.push(`🎯 метит цель на ${s.appliesMarkedSec}с`);
   if (s.knockdownSec && s.knockdownChance == null) {
-    lines.push(`💢 кладёт всех на ${s.knockdownSec}с`);
+    const who = s.targetType === 'single' ? 'цель' : 'всех';
+    lines.push(`💢 кладёт ${who} на ${s.knockdownSec}с`);
   }
   if (s.knockdownChance) {
     lines.push(`💢 ${Math.round(s.knockdownChance * 100)}% шанс положить при попадании`);

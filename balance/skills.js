@@ -1,5 +1,13 @@
 // Скиллы будут активны на Этапе 2. В Этапе 1 файл существует как часть контракта.
 
+// Cap уровня прокачки скиллов. Дальше tryUpgradeSkill отказывает.
+export const MAX_SKILL_LEVEL = 10;
+
+// CDR работает по rate-модели (см. battle/battle.js skillCooldownAfterCdr):
+//   effCD = baseCD / (1 + total_rate)
+// total_rate = global (от шмоток+перков) + local (от уровня скилла, через cdRateBonusPerLvl)
+// Diminishing returns встроен — кап не нужен. Стэкать всегда полезно, но всё менее эффективно.
+
 export const SKILLS = {
   hook: {
     name: 'Хук',
@@ -10,6 +18,7 @@ export const SKILLS = {
     // Marked applier: помечает цель на N секунд → её приоритизируют slam/dash, по ней spinkick бьёт сильнее.
     appliesMarkedSec: 5,
     levelBonusPerLvl: 0.15,
+    cdRateBonusPerLvl: 0.10,
   },
   cut: {
     name: 'Рассечение',
@@ -21,6 +30,7 @@ export const SKILLS = {
     // duration > baseCooldown → DoT непрерывно перекрывается при ритм-касте.
     dot: { damagePctPerSec: 0.25, durationSec: 7.0 },
     levelBonusPerLvl: 0.15,
+    cdRateBonusPerLvl: 0.10,
   },
   spinkick: {
     name: 'Вертушка с разворота',
@@ -31,7 +41,12 @@ export const SKILLS = {
     bonusCritChance: 0.50,
     // Marked consumer: по помеченной цели — +60% урона.
     bonusVsMarkedPct: 0.6,
+    // Knockdown — single-target CC, кладёт цель на 0.8с (× lvlMult).
+    // Синергии: открывает +60% урона по лежачему для Раунд-кика и +25% для Слэма.
+    // На качке отменяет windup. На L10 длительность = 0.8 × (1+9×0.15) = 1.88с.
+    knockdownSec: 0.8,
     levelBonusPerLvl: 0.15,
+    cdRateBonusPerLvl: 0.10,
   },
   roundkick: {
     name: 'Раунд-кик',
@@ -44,6 +59,7 @@ export const SKILLS = {
     // Синергия с knockdown: лежачие враги получают +60% урона (per-target).
     bonusVsKnockedDownPct: 0.6,
     levelBonusPerLvl: 0.15,
+    cdRateBonusPerLvl: 0.10,
   },
   slam: {
     name: 'Прыжок с приземлением',
@@ -65,14 +81,19 @@ export const SKILLS = {
     // Rage synergy: каст 0.8с → 0.4с (молниеносная реакция под Яростью).
     castDelayMultIfRage: 0.5,
     levelBonusPerLvl: 0.15,
+    cdRateBonusPerLvl: 0.10,
   },
   rage: {
     // Активируется на любом уровне зарядов от minCharges до maxCharges.
     // Длительность баффа линейно интерполируется: minCharges → minDurationSec, maxCharges → maxDurationSec.
     // Все заряды сжигаются при активации.
+    //
+    // Заряды копятся: chargesPerAutoAttack за авто-атаку + chargesPerSkillCast за каст любого
+    // cooldown-скилла. Сама Ярость зарядов не даёт (charges-скилл).
     name: 'Ярость',
     activation: 'charges',
     chargesPerAutoAttack: 1,
+    chargesPerSkillCast: 3,
     minCharges: 10,
     maxCharges: 50,
     minDurationSec: 2.0,
@@ -91,6 +112,7 @@ export const SKILLS = {
     // Rage synergy: пока активна Ярость, КД ×0.5 → можно отхилиться чаще под прессингом.
     cdMultiplierIfRage: 0.5,
     levelBonusPerLvl: 0.10,
+    cdRateBonusPerLvl: 0.10,
   },
   double_strike: {
     name: 'Двойной удар',
@@ -103,6 +125,7 @@ export const SKILLS = {
     // Синергия с bleed: если цель кровит на момент каста — оба хита +25% урона (снапшот).
     bonusVsBleedingPct: 0.25,
     levelBonusPerLvl: 0.15,
+    cdRateBonusPerLvl: 0.10,
   },
   bloodlust: {
     name: 'Кровожадность',
@@ -119,6 +142,7 @@ export const SKILLS = {
     minHealPct: 0.10,               // гарантированный минимум — 10% maxHp за каст (на пустую толпу)
     knockback: 25,
     levelBonusPerLvl: 0.15,
+    cdRateBonusPerLvl: 0.10,
   },
   combo: {
     name: 'Серия',
@@ -134,6 +158,7 @@ export const SKILLS = {
       critChanceBonusIfTagged: 0.30,
     },
     levelBonusPerLvl: 0.15,
+    cdRateBonusPerLvl: 0.10,
   },
   trip: {
     // CC-скилл: AoE вокруг героя, оглушает (knockdown) задетых врагов.
@@ -148,6 +173,7 @@ export const SKILLS = {
     knockdownSec: 1.5,
     knockback: 20,
     levelBonusPerLvl: 0.15,
+    cdRateBonusPerLvl: 0.10,
   },
   dash: {
     // Mobility/range: рывок к самому дальнему врагу, урон по линии.
@@ -164,6 +190,7 @@ export const SKILLS = {
     // Rage synergy: ширина полосы рывка ×1.5 пока активна Ярость (захватывает больше врагов).
     pathWidthMultiplierIfRage: 1.5,
     levelBonusPerLvl: 0.15,
+    cdRateBonusPerLvl: 0.10,
   },
 };
 

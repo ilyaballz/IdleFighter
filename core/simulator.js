@@ -86,12 +86,25 @@ function computeHeroDps(scenario, stats) {
     if (def.activation === 'charges' && def.targetType === 'self_buff') {
       // Греди-стратегия AI: каст при достижении minCharges → длительность = minDurationSec.
       // Цикл = minCharges / chargesPerSec (после каста заряды обнуляются).
-      // uptime = minDur × chargesPerSec / minCharges.
+      // Заряды копятся: с авто-атак (chargesPerAutoAttack) + с каста любого cooldown-скилла
+      // в лоадауте (chargesPerSkillCast × среднее число кастов/сек по всем cooldown-скиллам).
       const lvl = scenario.skillLevels[skillId] || 1;
       const lm = 1 + (lvl - 1) * (def.levelBonusPerLvl || 0);
       const bd = (def.bonusDamagePct || 0) * lm;
       const ba = (def.bonusAttackSpeedPct || 0) * lm;
-      const chargesPerSec = (def.chargesPerAutoAttack || 1) * stats.attackSpeed;
+      const chargesFromAuto = (def.chargesPerAutoAttack || 1) * stats.attackSpeed;
+      let skillCastsPerSec = 0;
+      for (const otherId of scenario.skills) {
+        if (!otherId) continue;
+        const od = SKILLS[otherId];
+        if (!od || od.activation !== 'cooldown') continue;
+        const odLvl = scenario.skillLevels[otherId] || 1;
+        const odLocal = od.cdRateBonusPerLvl ? Math.max(0, odLvl - 1) * od.cdRateBonusPerLvl : 0;
+        const cdEff = Math.max(0.1, od.baseCooldown / (1 + stats.skillCdrPct + odLocal));
+        skillCastsPerSec += 1 / cdEff;
+      }
+      const chargesFromSkills = (def.chargesPerSkillCast || 0) * skillCastsPerSec;
+      const chargesPerSec = chargesFromAuto + chargesFromSkills;
       const uptime = Math.min(1, def.minDurationSec * chargesPerSec / def.minCharges);
       const multAuto  = 1 + uptime * ((1 + bd) * (1 + ba) - 1);
       const multSkill = 1 + uptime * bd;
@@ -109,7 +122,8 @@ function computeHeroDps(scenario, stats) {
     const lvl = scenario.skillLevels[skillId] || 1;
     const dmgMult = def.baseDamageMultiplier * (1 + (lvl - 1) * def.levelBonusPerLvl);
     const hits = def.hits || 1;
-    const cdEff = Math.max(0.1, def.baseCooldown * (1 - stats.skillCdrPct));
+    const localCdRate = def.cdRateBonusPerLvl ? Math.max(0, lvl - 1) * def.cdRateBonusPerLvl : 0;
+    const cdEff = Math.max(0.1, def.baseCooldown / (1 + stats.skillCdrPct + localCdRate));
 
     // Бонусный крит-шанс конкретно для этого скилла
     const skillCritChance = Math.min(1, stats.critChance + (def.bonusCritChance || 0));

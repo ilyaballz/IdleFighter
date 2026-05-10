@@ -24,7 +24,7 @@ export const PLAYER = {
   capDodgeChance: 0.60,
   capDefense: 0.75,
   capAttackSpeed: 3.0,
-  capSkillCdrPct: 1.0,
+  // capSkillCdrPct убран — rate-based CDR с встроенным diminishing returns (см. stats_layer.js)
 };
 
 // Тренажёры дают «базу»: прямой урон, HP, защиту, регенерацию, скорость атаки + лёгкий dodge.

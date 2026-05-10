@@ -2,7 +2,8 @@
 
 export const BAR = {
   maxTickets: 3,
-  ticketRecoverSec: 3600,        // 1 час на билет
+  ticketRecoverSec: 600,         // 10 мин на билет (было 1 час)
+  startingTickets: 1,            // на старте у игрока 1 билет (а не полный набор)
 };
 
 // Босс бара. Скейлится от числа побед (см. game.js: bossLevel = barState.medals + 1).

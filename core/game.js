@@ -4,7 +4,7 @@ import { ARENA } from '../balance/visuals.js';
 import { SKILLS } from '../balance/skills.js';
 import { buildLocation, buildBarLocation } from '../battle/arena.js';
 import {
-  barState, recoverTickets, spendTicket, awardMedal,
+  barState, recoverTickets, spendTicket, recordBarWin,
 } from './bar_state.js';
 import {
   createHero, updateBattle, HERO_STATE, activateSkill,
@@ -18,7 +18,7 @@ import {
   showHubScene, renderHub, bindHubActions, bindCoinsAccessor, bindNutsAccessor, bindEssenceAccessor,
   showTapOverlay, hideTapOverlay,
   renderTapStatic, renderTapDynamic, flashTapFeedback, bindTapButton,
-  spawnXpFly, startGachaSpin, showPerkChoiceOverlay,
+  spawnXpFly, startGachaSpin,
 } from '../hub/ui.js';
 import {
   hubState, recoverEnergy, recoverGreenZones,
@@ -107,10 +107,6 @@ function enterHub() {
   endTrainingSession();
   hideTapOverlay();
   saveGame();
-  // Если после боя в баре открылся выбор перка — сразу показать оверлей.
-  if (barState.pendingChoice) {
-    setTimeout(() => showPerkChoiceOverlay(), 100);
-  }
 }
 
 function enterBattle(locationIndex) {
@@ -192,12 +188,10 @@ function onLocationVictory() {
 }
 
 function onBarVictory() {
-  const choiceOpened = awardMedal();
-  logEvent(`БАР: победа! +1 медаль (всего ${barState.medals})`, 'crit');
-  showVictory(
-    `Спарринг выигран!\n+1 🏅 медаль (всего ${barState.medals})` +
-    (choiceOpened ? `\n\n✨ Откроется выбор перка в хабе` : '')
-  );
+  recordBarWin();
+  addGachaToken(1);
+  logEvent(`БАР: победа! +1 жетон гачи (всего побед: ${barState.medals})`, 'crit');
+  showVictory(`Спарринг выигран!\n+1 🎰 жетон гачи (крутить в арсенале)`);
 }
 
 // ───────── Resize / Camera ─────────

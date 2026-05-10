@@ -1,7 +1,7 @@
 // Состояние скиллов: открытые, уровни, шарды, активный лоадаут (3 слота).
 // Шарды — заглушка для Этапа 3, уровни в Этапе 2 фиксированы = 1.
 
-import { SKILLS, STARTING_SKILLS, GUARANTEED_UNLOCKS, GACHA, shardCostForLevel } from '../balance/skills.js';
+import { SKILLS, STARTING_SKILLS, GUARANTEED_UNLOCKS, GACHA, shardCostForLevel, MAX_SKILL_LEVEL } from '../balance/skills.js';
 import { ENEMY_BASE, ELITE_BASE, BOSS_BASE } from '../balance/enemies.js';
 
 export const LOADOUT_SLOTS = 3;
@@ -122,12 +122,18 @@ export function getSkillShards(skillId) {
   return loadoutState.shards[skillId] || 0;
 }
 
+export function isSkillAtMaxLevel(skillId) {
+  return getSkillLevel(skillId) >= MAX_SKILL_LEVEL;
+}
+
+// Возвращает стоимость след. уровня в шардах, или null если уже на cap'е.
 export function getSkillUpgradeCost(skillId) {
-  const lvl = getSkillLevel(skillId);
-  return shardCostForLevel(lvl);
+  if (isSkillAtMaxLevel(skillId)) return null;
+  return shardCostForLevel(getSkillLevel(skillId));
 }
 
 export function tryUpgradeSkill(skillId) {
+  if (isSkillAtMaxLevel(skillId)) return false;
   const lvl = getSkillLevel(skillId);
   const cost = shardCostForLevel(lvl);
   if (getSkillShards(skillId) < cost) return false;

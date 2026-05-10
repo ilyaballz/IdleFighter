@@ -319,9 +319,20 @@ function updateProjectiles(world, dt) {
 
 // ───────── Skills ─────────
 
-function skillCooldownAfterCdr(baseCd) {
-  const cdr = getEffectiveStat('skillCdrPct');
-  return baseCd * (1 - cdr);
+// Rate-based CDR: эффCD = baseCD / (1 + global_rate + local_rate).
+// global берётся с эквипа+перков, local — от уровня конкретного скилла (cdRateBonusPerLvl).
+// Diminishing returns встроен — 100% rate сокращает КД вдвое, 200% — в три раза, и т.д.
+export function localCdRateForSkill(skillId) {
+  const def = SKILLS[skillId];
+  if (!def?.cdRateBonusPerLvl) return 0;
+  const lvl = getSkillLevel(skillId);
+  return Math.max(0, lvl - 1) * def.cdRateBonusPerLvl;
+}
+
+function skillCooldownAfterCdr(baseCd, skillId) {
+  const globalRate = getEffectiveStat('skillCdrPct');
+  const localRate = localCdRateForSkill(skillId);
+  return Math.max(0.1, baseCd / (1 + globalRate + localRate));
 }
 
 // Level-scale множитель: 1× на lvl 1, +levelBonusPerLvl за каждый следующий уровень.
@@ -503,6 +514,12 @@ export function activateSkill(hero, skillId, world) {
           e.markedUntil = (e === target) ? world.timeNow + def.appliesMarkedSec : 0;
         }
       }
+      // Knockdown applier (например spinkick): кладёт цель на knockdownSec × lvlMult.
+      // Если цель уже лежит — берём максимум, чтобы новый KD не сократил предыдущий.
+      if (def.knockdownSec && target.alive) {
+        const kdSec = def.knockdownSec * lvlMult(def, lvl);
+        target.knockdownUntil = Math.max(target.knockdownUntil, world.timeNow + kdSec);
+      }
       // Combo универсальный consumer: если цель имела любой тег — buffOnUse ниже усилится crit-чансом.
       if (targetHadAnyTag && def.buffOnUse?.critChanceBonusIfTagged) {
         comboTaggedBonus = true;
@@ -518,6 +535,9 @@ export function activateSkill(hero, skillId, world) {
         tagSuffix += ' 🎯';
       } else if (wasMarked && def.bonusVsMarkedPct) {
         tagSuffix += ` 🎯+${Math.round(def.bonusVsMarkedPct * 100)}%`;
+      }
+      if (def.knockdownSec && target.alive) {
+        tagSuffix += ' ⤵️';
       }
       logEvent(`${def.name}: ${Math.round(totalDmg)}${hits > 1 ? ` × ${hits}` : ''} по ${target.name}${critTag}${tagSuffix}`);
       break;
@@ -717,9 +737,15 @@ export function activateSkill(hero, skillId, world) {
 
   // Списать ресурс / поставить КД
   if (def.activation === 'cooldown') {
-    let cd = skillCooldownAfterCdr(def.baseCooldown);
+    let cd = skillCooldownAfterCdr(def.baseCooldown, skillId);
     if (def.cdMultiplierIfRage && isRageActive(hero)) cd *= def.cdMultiplierIfRage;
     hero.skillCooldowns[skillId] = cd;
+    // Cooldown-скилл генерит заряды Ярости. Charges-скиллы (сама Ярость) — нет.
+    const rageDef = SKILLS.rage;
+    if (rageDef?.chargesPerSkillCast) {
+      hero.rageCharges = Math.min(rageDef.maxCharges,
+                                  hero.rageCharges + rageDef.chargesPerSkillCast);
+    }
   } else if (def.activation === 'charges') {
     hero.rageCharges = 0;
   }

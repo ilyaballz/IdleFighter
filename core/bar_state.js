@@ -1,13 +1,15 @@
-// State бара: билеты, медали, перки. Кросс-доменный модуль (как loadout/inventory).
+// State бара: билеты + счётчик побед (для скейла бар-босса).
+// Перк-система временно отключена (см. memory: project_bar_simplified). Поля ownedPerks /
+// pendingChoice / takePerk / awardMedal удалены. getPerkBonus оставлен, но возвращает 0 —
+// чтобы не ломать импорт в core/stats_layer.js (он зовёт perk('damageFlat') и т.п.).
+// Когда вернёмся к перкам — реализуем заново здесь, остальной код подхватит.
 
-import { BAR, PERKS, PERKS_PER_CHOICE, PERK_CHOICES, findPerk } from '../balance/bar.js';
+import { BAR } from '../balance/bar.js';
 
 export const barState = {
-  tickets: BAR.maxTickets,
+  tickets: BAR.startingTickets,
   ticketAccum: 0,        // секунды от последнего тикета
-  medals: 0,
-  ownedPerks: {},        // perkId → count (стэки)
-  pendingChoice: null,   // null | string[] — массив perkId для выбора 1 из N
+  medals: 0,             // счётчик побед — влияет только на уровень бар-босса (см. game.js)
 };
 
 // Регенерация билетов. Вызывать в общем тике.
@@ -35,50 +37,18 @@ export function spendTicket() {
   return true;
 }
 
-// При победе в баре — медаль; каждые PERKS_PER_CHOICE открывают выбор перка.
-// Возвращает true, если выбор открылся (UI должен показать оверлей).
-export function awardMedal() {
+// Победа в баре — увеличиваем счётчик. Награда (жетон гачи) выдаётся в game.js onBarVictory.
+export function recordBarWin() {
   barState.medals++;
-  if (barState.medals % PERKS_PER_CHOICE === 0) {
-    barState.pendingChoice = rollPerkChoice();
-    return true;
-  }
-  return false;
 }
 
-function rollPerkChoice() {
-  const pool = PERKS.slice();
-  for (let i = pool.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [pool[i], pool[j]] = [pool[j], pool[i]];
-  }
-  return pool.slice(0, PERK_CHOICES).map(p => p.id);
-}
-
-export function takePerk(id) {
-  if (!barState.pendingChoice || !barState.pendingChoice.includes(id)) return false;
-  const perk = findPerk(id);
-  if (!perk) return false;
-  barState.ownedPerks[id] = (barState.ownedPerks[id] || 0) + 1;
-  barState.pendingChoice = null;
-  return true;
-}
-
-// Сумма бонусов всех взятых перков по типу stat (см. balance/bar.js).
-export function getPerkBonus(statKey) {
-  let total = 0;
-  for (const [id, count] of Object.entries(barState.ownedPerks)) {
-    const perk = findPerk(id);
-    if (!perk || perk.stat !== statKey) continue;
-    total += perk.value * count;
-  }
-  return total;
+// Заглушка для core/stats_layer.js — перк-система отключена, всегда 0.
+export function getPerkBonus(_statKey) {
+  return 0;
 }
 
 export function resetBarState() {
-  barState.tickets = BAR.maxTickets;
+  barState.tickets = BAR.startingTickets;
   barState.ticketAccum = 0;
   barState.medals = 0;
-  barState.ownedPerks = {};
-  barState.pendingChoice = null;
 }

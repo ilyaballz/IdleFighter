@@ -66,8 +66,6 @@ export function saveGame() {
       tickets: barState.tickets,
       ticketAccum: barState.ticketAccum,
       medals: barState.medals,
-      ownedPerks: { ...barState.ownedPerks },
-      pendingChoice: barState.pendingChoice ? [...barState.pendingChoice] : null,
     },
     ftue: ftue.serialize(),
   };
@@ -129,12 +127,10 @@ export function loadGame() {
   if (data.inventory?.equipped) Object.assign(inventoryState.equipped, data.inventory.equipped);
   if (typeof data.inventory?.nextItemId === 'number') setNextItemId(data.inventory.nextItemId);
 
-  // Bar
+  // Bar — старые сейвы могут содержать ownedPerks/pendingChoice, мы их игнорим.
   if (typeof data.bar?.tickets === 'number')     barState.tickets = data.bar.tickets;
   if (typeof data.bar?.ticketAccum === 'number') barState.ticketAccum = data.bar.ticketAccum;
   if (typeof data.bar?.medals === 'number')      barState.medals = data.bar.medals;
-  barState.ownedPerks = data.bar?.ownedPerks ? { ...data.bar.ownedPerks } : {};
-  barState.pendingChoice = data.bar?.pendingChoice ? [...data.bar.pendingChoice] : null;
 
   // FTUE — back-compat: старые сейвы без блока → reset, флаги остаются дефолтные false.
   if (data.ftue) ftue.deserialize(data.ftue);

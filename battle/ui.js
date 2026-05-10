@@ -5,6 +5,7 @@ import { SKILLS } from '../balance/skills.js';
 import { arenaTypeLabel } from '../balance/enemies.js';
 import { loadoutState, getSkillLevel } from '../core/loadout.js';
 import { SKILL_ICONS } from '../core/skill_meta.js';
+import { localCdRateForSkill } from './battle.js';
 import * as ftue from '../core/ftue.js';
 
 const $ = (id) => document.getElementById(id);
@@ -62,7 +63,7 @@ export function updateSkillButtons(hero) {
 
     if (def.activation === 'cooldown') {
       const remaining = hero.skillCooldowns[skillId] || 0;
-      const fullCd = def.baseCooldown * (1 - getEffectiveStat('skillCdrPct'));
+      const fullCd = def.baseCooldown / (1 + getEffectiveStat('skillCdrPct') + localCdRateForSkill(skillId));
       const pct = fullCd > 0 ? remaining / fullCd : 0;
       cd.style.setProperty('--cd-pct', pct);
       cdText.textContent = remaining > 0 ? remaining.toFixed(1) : '';

@@ -1,8 +1,9 @@
 // Апгрейды дома — три постройки, каждая улучшает свой параметр энергии/усталости.
-// fridge → fatigueRecoverPerHour (оверрайд значения)
-// couch  → множитель к ENERGY.recoverPerSec
-// trailer → оверрайд ENERGY.maxCap
-// T1 у каждой постройки — стартовый/бесплатный (= совпадает с базой в training.js).
+// Все три унифицированы как множители к базам в balance/training.js:
+//   fridge  → ×FATIGUE.recoverPerHour (и refund за зачистку локаций)
+//   couch   → ×ENERGY.recoverPerSec
+//   trailer → ×ENERGY.maxCap
+// T1 у каждой постройки — стартовый/бесплатный (×1.0, базовое значение).
 //
 // Валюта: 🔩 гайки (НЕ монеты). Гайки дропают только боссы локаций — отделено от тренажёров,
 // чтобы апгрейды дома и тренажёров не конкурировали за один кошелёк.
@@ -13,13 +14,13 @@ export const HOME_UPGRADES = {
     name: 'Холодильник',
     icon: '🧊',
     desc: 'Восст. свежести между сессиями',
-    bonusUnit: '/час',
+    bonusUnit: '×',
     tiers: [
-      { value: 60,  nutCost: 0 },
-      { value: 75,  nutCost: 3 },
-      { value: 95,  nutCost: 7 },
-      { value: 120, nutCost: 15 },
-      { value: 150, nutCost: 25 },
+      { value: 1.0,    nutCost: 0  }, // 60/час (база)
+      { value: 1.25,   nutCost: 3  }, // 75/час
+      { value: 1.5833, nutCost: 7  }, // 95/час
+      { value: 2.0,    nutCost: 15 }, // 120/час
+      { value: 2.5,    nutCost: 25 }, // 150/час
     ],
   },
   couch: {

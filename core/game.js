@@ -25,7 +25,7 @@ import {
   tryUpgradeTrainer, startTrainingSession, endTrainingSession,
   updateSession as updateHubSession, performTap,
   getEffectiveEnergyMax, tryUpgradeHome,
-  bindHeroStatLevelProvider,
+  bindHeroStatLevelProvider, applyLocationClearFatigueRefund,
 } from '../hub/state.js';
 import { resetHeroForNewRun, addStatXp, heroState } from './stats_layer.js';
 import * as ftue from './ftue.js';
@@ -183,7 +183,10 @@ function onLocationVictory() {
   addGachaToken(1);
   logEvent(`+1 жетон гачи!`, 'crit');
   hubState.currentLocationIndex = cleared + 1;
-  showVictory(`Локация ${cleared} зачищена!\n+1 жетон гачи (крутить в хабе)`);
+  const refund = applyLocationClearFatigueRefund();
+  const refundLine = refund > 0 ? `\n🧊 Тренажёры освежены (−${refund.toFixed(1)} усталости)` : '';
+  if (refund > 0) logEvent(`🧊 Свежесть тренажёров: −${refund.toFixed(1)}`, 'kill');
+  showVictory(`Локация ${cleared} зачищена!\n+1 жетон гачи${refundLine}`);
   logEvent(`=== Локация ${cleared} зачищена ===`, 'kill');
 }
 

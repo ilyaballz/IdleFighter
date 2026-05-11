@@ -35,11 +35,4 @@ export const STAT_BONUSES = {
   agility:   { attackSpeedPct: 0.015, dodgeChance: 0.0045 },
 };
 
-export const STAT_LEVEL_XP = {
-  baseXp: 20,
-  growthMultiplier: 1.4,
-};
-
-export function xpForLevel(level) {
-  return Math.floor(STAT_LEVEL_XP.baseXp * Math.pow(STAT_LEVEL_XP.growthMultiplier, level - 1));
-}
+// XP-кривая стат-уровней живёт в balance/training.js (рядом с xpPerTap по тирам).

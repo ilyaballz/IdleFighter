@@ -1,6 +1,6 @@
 // Хаб: энергия, тренажёры, тап-тайминг, прогресс между забегами.
 
-import { ENERGY, TAP_ZONES, TAP_BAR, TRAINERS, TRAINER_TIERS } from '../balance/training.js';
+import { ENERGY, TAP_ZONES, TAP_BAR, FATIGUE, TRAINERS, TRAINER_TIERS } from '../balance/training.js';
 import { HOME_UPGRADES, homeTierValue } from '../balance/home.js';
 
 function freshTrainer() {
@@ -14,11 +14,13 @@ function freshTrainer() {
   return t;
 }
 
-// Скорость убывания зон растёт с fatigue (см. TAP_BAR в balance/training.js).
+// Скорость убывания зон растёт с fatigue (см. FATIGUE в balance/training.js).
+// Тир тренажёра даёт fatigueResist: чем выше тир, тем мягче убывают зоны.
 function recomputeWidths(t) {
   const f = t.fatigue;
-  const greenShrink  = f * TAP_BAR.greenBaseShrink  + TAP_BAR.greenAccel  * f * (f - 1) / 2;
-  const yellowShrink = f * TAP_BAR.yellowBaseShrink + TAP_BAR.yellowAccel * f * (f - 1) / 2;
+  const resist = TRAINER_TIERS[t.tier]?.fatigueResist ?? 1;
+  const greenShrink  = resist * (f * FATIGUE.greenBaseShrink  + FATIGUE.greenAccel  * f * (f - 1) / 2);
+  const yellowShrink = resist * (f * FATIGUE.yellowBaseShrink + FATIGUE.yellowAccel * f * (f - 1) / 2);
   t.greenWidth  = Math.max(0, TAP_BAR.baseGreenWidth - greenShrink);
   t.yellowWidth = Math.max(0, TAP_BAR.baseYellowWidth - yellowShrink);
 }
@@ -49,7 +51,7 @@ export function getEffectiveEnergyRegenPerSec() {
 }
 
 export function getEffectiveFatigueRecoverPerHour() {
-  return homeTierValue('fridge', hubState.home.fridge);
+  return FATIGUE.recoverPerHour * homeTierValue('fridge', hubState.home.fridge);
 }
 
 // ───────── Энергия / зоны: пассивные тики ─────────
@@ -68,6 +70,24 @@ export function recoverGreenZones(dt) {
       recomputeWidths(t);
     }
   }
+}
+
+// Дискретный возврат свежести за зачистку локации. Применяется ко всем трём
+// тренажёрам, масштабируется текущим темпом холодильника (его прокачка усиливает
+// и пассивный тик, и этот возврат). Возвращает 0, если ни один тренажёр не был усталым.
+export function applyLocationClearFatigueRefund() {
+  const fridgeMult = homeTierValue('fridge', hubState.home.fridge);
+  const refund = FATIGUE.locationClearRefund * fridgeMult;
+  let applied = false;
+  for (const stat of Object.keys(hubState.trainers)) {
+    const t = hubState.trainers[stat];
+    if (t.fatigue > 0) {
+      t.fatigue = Math.max(0, t.fatigue - refund);
+      recomputeWidths(t);
+      applied = true;
+    }
+  }
+  return applied ? refund : 0;
 }
 
 // ───────── Дом: апгрейды ─────────
@@ -174,6 +194,8 @@ export function tryUpgradeTrainer(stat, walletDeduce) {
   if (heroStatLevelProvider(stat) < currentCap) return false;
   if (!walletDeduce(next.upgradeCost)) return false;
   t.tier++;
+  // Новый fatigueResist меняет визуальную ширину зон при той же fatigue.
+  recomputeWidths(t);
   return true;
 }
 

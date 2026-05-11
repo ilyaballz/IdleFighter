@@ -1,3 +1,7 @@
+// ═══════════════════════════════════════════════════════════════════════════
+// Energy
+// ═══════════════════════════════════════════════════════════════════════════
+
 export const ENERGY = {
   maxCap: 100,
   startAmount: 100,
@@ -7,10 +11,28 @@ export const ENERGY = {
   // или вручную. Зоны зелёная/жёлтая сужаются (усталость мышц).
 };
 
+// ═══════════════════════════════════════════════════════════════════════════
+// XP-кривая статов (накопление уровней внутри одного стата)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export const STAT_LEVEL_XP = {
+  baseXp: 20,
+  growthMultiplier: 1.35,
+};
+
+export function xpForLevel(level) {
+  return Math.floor(STAT_LEVEL_XP.baseXp * Math.pow(STAT_LEVEL_XP.growthMultiplier, level - 1));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Тап-механика (зоны, бар, курсор) — только визуал и стоимость энергии.
+// Динамика убывания зон и накопления усталости вынесена в FATIGUE.
+// ═══════════════════════════════════════════════════════════════════════════
+
 export const TAP_ZONES = {
-  green:  { energyCost: 2, xpGain: 1 },
-  yellow: { energyCost: 4, xpGain: 1 },
-  red:    { energyCost: 6, xpGain: 1 },
+  green:  { energyCost: 2 },
+  yellow: { energyCost: 4 },
+  red:    { energyCost: 6 },
 };
 
 export const TAP_BAR = {
@@ -22,10 +44,17 @@ export const TAP_BAR = {
   baseGreenWidth: 60,
   baseYellowWidth: 90,    // жёлтая значительно шире зелёной — становится «нормой» когда зелёная исчерпана
   cursorSpeed: 120,
+};
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Fatigue: накопление за тапы, убывание зон, восстановление, refund за бой
+// ═══════════════════════════════════════════════════════════════════════════
+
+export const FATIGUE = {
   // Скорость убывания зон растёт с fatigue. Каждый тап забирает у зоны:
   //   shrinkPerTap = baseShrink + fatigue × accel
   // Накопительно после N тапов: убыль = N × baseShrink + accel × N(N-1)/2
+  // Дополнительно умножается на TRAINER_TIERS[tier].fatigueResist (см. ниже).
   greenBaseShrink: 4,    // первый тап у свежего игрока забирает 4 ширины зелёной
   greenAccel:      2.0,  // каждый следующий тап забирает на 2 больше
   yellowBaseShrink: 1,
@@ -33,8 +62,18 @@ export const TAP_BAR = {
 
   // Восстановление: тап = +1 fatigue, убывает со временем.
   // 60/час = синхронно с регеном энергии (полная батарейка за 10 мин).
-  fatigueRecoverPerHour: 60,
+  // Холодильник в home.js работает как множитель к этой базе.
+  recoverPerHour: 60,
+
+  // Дискретный сброс fatigue при зачистке локации (на все три тренажёра).
+  // Масштабируется текущим темпом холодильника: refund = base × fridgeMult.
+  // T1 холод → −3, T5 холод → −7.5. Не полный сброс — нужно ещё пассивный реген.
+  locationClearRefund: 3,
 };
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Тренажёры и тиры
+// ═══════════════════════════════════════════════════════════════════════════
 
 export const TRAINERS = {
   strength:  { stat: 'strength',  name: 'Штанга',     icon: '🏋️' },
@@ -51,11 +90,15 @@ export const TRAINERS = {
 //
 // levelCap — максимальный уровень соответствующего стата при текущем тире.
 // При cap'е тренажёр блокирует вход в сессию — нужно купить следующий тир.
+//
+// fatigueResist — множитель к убыванию зон от усталости. Чем ниже, тем длиннее
+// «продуктивная» часть сессии (больше тапов до того, как зелёная/жёлтая исчезнут).
+// T1: ~6 зелёных / 17 продуктивных; T5: ~10 зелёных / 28 продуктивных.
 export const TRAINER_TIERS = [
-  { tier: 0, statMultiplier: 0,   levelCap: 0,  xpPerTap: 0,   upgradeCost: 0 },
-  { tier: 1, statMultiplier: 1.0, levelCap: 5,  xpPerTap: 3,   upgradeCost: 100 },
-  { tier: 2, statMultiplier: 1.5, levelCap: 10, xpPerTap: 10,  upgradeCost: 500 },
-  { tier: 3, statMultiplier: 2.0, levelCap: 15, xpPerTap: 30,  upgradeCost: 2500 },
-  { tier: 4, statMultiplier: 2.5, levelCap: 20, xpPerTap: 90,  upgradeCost: 6000 },
-  { tier: 5, statMultiplier: 3.0, levelCap: 25, xpPerTap: 270, upgradeCost: 15000 },
+  { tier: 0, statMultiplier: 0,   levelCap: 0,  xpPerTap: 0,   fatigueResist: 1.0,  upgradeCost: 0 },
+  { tier: 1, statMultiplier: 1.0, levelCap: 5,  xpPerTap: 3,   fatigueResist: 1.0,  upgradeCost: 100 },
+  { tier: 2, statMultiplier: 1.5, levelCap: 10, xpPerTap: 10,  fatigueResist: 0.85, upgradeCost: 500 },
+  { tier: 3, statMultiplier: 2.0, levelCap: 15, xpPerTap: 30,  fatigueResist: 0.70, upgradeCost: 2500 },
+  { tier: 4, statMultiplier: 2.5, levelCap: 20, xpPerTap: 90,  fatigueResist: 0.55, upgradeCost: 6000 },
+  { tier: 5, statMultiplier: 3.0, levelCap: 25, xpPerTap: 270, fatigueResist: 0.40, upgradeCost: 15000 },
 ];

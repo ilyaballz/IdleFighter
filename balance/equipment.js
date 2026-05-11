@@ -4,10 +4,13 @@
 
 import { MILESTONE_LEGENDARY_BOOST } from './enemies.js';
 
+// Все primary stats — «всегда полезные» (универсальные DPS/выживаемость/утилити).
+// Crit (chance/multiplier) — синергийный билд, оставлен только во вторичных аффиксах:
+// игрок целенаправленно собирает crit, а не получает мусорный common-браслет.
 export const EQUIPMENT_SLOTS = {
   fists:    { name: 'Кулаки',    icon: '🥊', primaryStat: 'damage' },
-  chain:    { name: 'Цепь',      icon: '⛓️',  primaryStat: 'critChance' },
-  bracers:  { name: 'Браслеты',  icon: '💪', primaryStat: 'critMultiplier' },
+  chain:    { name: 'Цепь',      icon: '⛓️',  primaryStat: 'damagePct' },
+  bracers:  { name: 'Браслеты',  icon: '💪', primaryStat: 'skillCdrPct' },
   jacket:   { name: 'Куртка',    icon: '🧥', primaryStat: 'maxHp' },
   bandana:  { name: 'Бандана',   icon: '🎽', primaryStat: 'defense' },
   sneakers: { name: 'Кроссовки', icon: '👟', primaryStat: 'attackSpeedPct' },
@@ -23,13 +26,14 @@ export const RARITIES = {
 
 // Базовое значение primary affix для common-предмета на L1 локации.
 // Скейлится: × RARITIES[r].weight × pow(locationScale, locationLevel-1).
+// Все ключи здесь должны соответствовать `primaryStat` какого-то слота выше.
 export const PRIMARY_AFFIX_BASE = {
   damage:         5,
-  critChance:     0.03,    // +3%
-  critMultiplier: 0.20,    // +0.20×
+  damagePct:      0.08,    // +8% мультипликативного урона
   maxHp:          30,
   defense:        0.04,    // +4%
   attackSpeedPct: 0.08,    // +8%
+  skillCdrPct:    0.08,    // +8% CDR (rate-based с встроенным diminishing)
 };
 
 // Пул вторичных аффиксов — простой, базовые статы.

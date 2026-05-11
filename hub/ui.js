@@ -3,7 +3,7 @@
 import { getEffectiveStat, getStatXpProgress } from '../core/stats_layer.js';
 import { SKILLS, GACHA } from '../balance/skills.js';
 import { STAT_BONUSES } from '../balance/player.js';
-import { TAP_BAR, ENERGY } from '../balance/training.js';
+import { TAP_BAR, ENERGY, FATIGUE } from '../balance/training.js';
 import {
   loadoutState, isUnlocked, setSlot, getSkillLevel,
   getSkillShards, getSkillUpgradeCost, tryUpgradeSkill,
@@ -338,7 +338,7 @@ function formatHomeValue(buildingId, value) {
     const sec = cap / (baseRecover * value);
     return `${value}× (${Math.round(sec / 60)}мин до full)`;
   }
-  if (buildingId === 'fridge') return `${value}/час`;
+  if (buildingId === 'fridge') return `${value}× (${Math.round(value * FATIGUE.recoverPerHour)}/час)`;
   if (buildingId === 'trailer') return `${value}⚡`;
   return String(value);
 }

@@ -158,14 +158,14 @@ export const MILESTONE_LOCATIONS = [5, 10, 15];
 
 // Bump к hpMult босса: первый milestone мягкий, последний — жёсткий.
 export const MILESTONE_HP_BUMP_CURVE = {
-  startMult: 1.2,    // bump на первом milestone (L5)
+  startMult: 1.10,   // bump на первом milestone (L5) — мягкий вход в boss-walls
   endMult:   1.5,    // bump на последнем milestone (L15)
   curve:     1.0,    // 1=линейно. >1=медленный старт. <1=быстрый старт.
 };
 
 // Bump к damage босса.
 export const MILESTONE_DAMAGE_BUMP_CURVE = {
-  startMult: 1.2,
+  startMult: 1.10,
   endMult:   1.5,
   curve:     1.0,
 };

@@ -1,7 +1,8 @@
 // Слой агрегации статов — единая точка расчёта итоговых характеристик героя.
 // Критично: при добавлении эквипа в v2 все формулы продолжают работать без переписывания.
 
-import { PLAYER, STAT_BONUSES, xpForLevel } from '../balance/player.js';
+import { PLAYER, STAT_BONUSES } from '../balance/player.js';
+import { xpForLevel } from '../balance/training.js';
 import { getEquipmentBonus } from '../balance/equipment.js';
 import { getEquippedItems } from './inventory.js';
 import { getPerkBonus } from './bar_state.js';

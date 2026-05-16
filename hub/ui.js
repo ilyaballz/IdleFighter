@@ -12,11 +12,11 @@ import {
 import {
   hubState, getTrainerInfo, computeZones,
   getEffectiveEnergyMax, getEffectiveEnergyRegenPerSec,
-  getHomeBuildingInfo,
+  getHomeBuildingInfo, GOLDEN_ZONE,
 } from './state.js';
 import { HOME_UPGRADES } from '../balance/home.js';
-import { BAR } from '../balance/bar.js';
-import { barState, getNextTicketSec } from '../core/bar_state.js';
+import { BAR, BAR_OPPONENTS, previewRewardLabel, scratchTargetIcon } from '../balance/bar.js';
+import { barState, getNextTicketSec, getCurrentOpponent } from '../core/bar_state.js';
 import {
   EQUIPMENT_SLOTS, RARITIES, getPrimaryUpgradeMultiplier,
 } from '../balance/equipment.js';
@@ -30,6 +30,15 @@ import {
   SKILL_ICONS, SKILL_SHORT_NAMES,
   describeSkillChips, describeSkillSynergies, synergyTone,
 } from '../core/skill_meta.js';
+import {
+  TRAINER_MILESTONES, reachedMilestones, nextMilestone,
+} from '../balance/milestones.js';
+import {
+  STICKERS, STICKER_SETS, stickerIdsInSet,
+} from '../balance/stickers.js';
+import {
+  isStickerUnlocked, isSetComplete, getUnlockedStickers,
+} from '../core/stickers_state.js';
 import { logEvent } from '../core/logger.js';
 import { hideDefeat, hideVictory } from '../battle/ui.js';
 import * as ftue from '../core/ftue.js';
@@ -80,7 +89,7 @@ export function showHubScene() {
 
 // ───────── Sub-screens ─────────
 
-const HUB_SCREENS = ['home', 'gym', 'arsenal', 'wardrobe', 'house', 'bar'];
+const HUB_SCREENS = ['home', 'gym', 'arsenal', 'wardrobe', 'house', 'bar', 'stickers'];
 let currentHubScreen = 'home';
 
 export function showHubScreen(name) {
@@ -121,6 +130,9 @@ function refreshCurrentHubScreen() {
       break;
     case 'bar':
       renderBar();
+      break;
+    case 'stickers':
+      renderStickers();
       break;
   }
 }
@@ -163,11 +175,32 @@ export function renderHub() {
   refreshCurrentHubScreen();
 }
 
-// Есть ли в инвентаре предмет, под который слот пустой → имеет смысл подсветить гардероб.
-function hasUnequippedItemForEmptySlot() {
+const RARITY_RANK = { common: 1, good: 2, rare: 3, epic: 4, legendary: 5 };
+
+// Сравнение «лучше ли вещь надетой в её слоте». Критерий: сначала редкость,
+// при равенстве — эффективное значение primary-аффикса с учётом апгрейда.
+// Возвращает false если equipped нет (пустой слот обрабатывается отдельно).
+function isItemBetterThanEquipped(item) {
+  const equipped = getEquippedItemForSlot(item.slot);
+  if (!equipped || equipped.id === item.id) return false;
+  const rItem = RARITY_RANK[item.rarity] || 0;
+  const rEq   = RARITY_RANK[equipped.rarity] || 0;
+  if (rItem !== rEq) return rItem > rEq;
+  const itemVal = item.primaryAffix.value * getPrimaryUpgradeMultiplier(item);
+  const eqVal   = equipped.primaryAffix.value * getPrimaryUpgradeMultiplier(equipped);
+  return itemVal > eqVal;
+}
+
+// Есть ли в инвентаре повод заглянуть в гардероб: либо предмет под пустой слот,
+// либо предмет «лучше» надетого по правилам isItemBetterThanEquipped.
+function hasWardrobeAction() {
   for (const slotId of Object.keys(EQUIPMENT_SLOTS)) {
-    if (inventoryState.equipped[slotId]) continue;          // слот уже занят
-    if (getItemsForSlot(slotId).length > 0) return true;    // есть свободный предмет под пустой слот
+    const items = getItemsForSlot(slotId);
+    if (items.length === 0) continue;
+    if (!inventoryState.equipped[slotId]) return true;     // пустой слот, есть кандидат
+    for (const it of items) {
+      if (isItemBetterThanEquipped(it)) return true;
+    }
   }
   return false;
 }
@@ -179,18 +212,21 @@ function renderBuildings() {
   const loc = hubState.currentLocationIndex;
   // action — есть полезное действие (жёлтый «!» с пульсом).
   // info   — справочная цифра (нейтральный pink-бейдж), показывается только если нет action.
+  const unlockedCount = getUnlockedStickers().size;
   const buildings = [
     { id: 'gym',     icon: '🏋️', name: 'КАЧАЛКА',  hint: 'тренажёры и тапы' },
     { id: 'house',   icon: '🏠', name: 'ДОМ',      hint: 'апгрейды энергии' },
     { id: 'bar',     icon: '🍻', name: 'БАР',      hint: barHubHint(),
       action: barState.tickets > 0,                          // есть билет = можно подраться
       info:   null },
-    { id: 'arsenal', icon: '🥋', name: 'АРСЕНАЛ',
+    { id: 'arsenal', icon: '⚔️', name: 'АРСЕНАЛ',
       hint: tokens > 0 ? `🎰 ${tokens} жетон.` : 'скиллы / лоадаут',
       action: tokens > 0 },
     { id: 'wardrobe',icon: '👕', name: 'ГАРДЕРОБ',
       hint: `${inventoryState.items.length} предм.`,
-      action: hasUnequippedItemForEmptySlot() },
+      action: hasWardrobeAction() },
+    { id: 'stickers', icon: '🏷', name: 'СТИКЕРЫ',
+      hint: `${unlockedCount}/25 наклеек` },
   ];
 
   grid.innerHTML = buildings.map(b => {
@@ -252,6 +288,34 @@ function currentEssence() { return essenceAccessor(); }
 
 // ───────── Тренажёры ─────────
 
+// HTML-блок с прогрессом per-trainer milestones: бейджи разлоченных эффектов
+// + полоска прогресса к следующему milestone'у. Если ничего ещё не разлочено и
+// есть next — показываем только полоску. Если всё разлочено — показываем «макс».
+function renderMilestoneBlock(taps) {
+  const reached = reachedMilestones(taps);
+  const next = nextMilestone(taps);
+  const badges = reached.map(m =>
+    `<span class="milestone-badge" title="${m.desc}">${m.icon} ${m.label}</span>`
+  ).join('');
+  let row;
+  if (next) {
+    const prevTaps = reached.length > 0 ? reached[reached.length - 1].taps : 0;
+    const span = next.taps - prevTaps;
+    const into = taps - prevTaps;
+    const pct = Math.max(0, Math.min(100, (into / span) * 100));
+    row = `
+      <div class="milestone-row">
+        <span class="label">${taps} / ${next.taps}</span>
+        <div class="bar"><div class="fill" style="width:${pct}%"></div></div>
+        <span class="next-icon" title="${next.desc}">${next.icon}</span>
+      </div>`;
+  } else {
+    row = `<div class="milestone-row maxed"><span class="label">★ все milestones получены</span></div>`;
+  }
+  const badgesHtml = badges ? `<div class="milestone-badges">${badges}</div>` : '';
+  return row + badgesHtml;
+}
+
 function renderTrainers() {
   const root = $('trainers-list');
   root.innerHTML = '';
@@ -287,6 +351,7 @@ function renderTrainers() {
     // Подсветка кнопки апгрейда — пульсирует всегда когда доступен апгрейд И хватает монет.
     // Раньше тут был one-shot FTUE-пульс на «первый T1», теперь это persistent action-indicator.
     const upgradePulse = canUpgrade ? ' ftue-pulse-btn' : '';
+    const milestoneHtml = renderMilestoneBlock(info.lifetimeTaps);
     card.innerHTML = `
       <div class="head">
         <div>
@@ -301,6 +366,7 @@ function renderTrainers() {
         <span>${xpText}</span>
         <span>${tierLabel}</span>
       </div>
+      ${milestoneHtml}
       <div class="actions">
         <button class="upgrade${upgradePulse}" ${canUpgrade ? '' : 'disabled'}>${upgradeLabel}</button>
         <button class="primary train" ${canTrain ? '' : 'disabled'}>${trainLabel}</button>
@@ -329,7 +395,7 @@ export function bindHubActions(handlers) {
 
 // ───────── Дом (апгрейды) ─────────
 
-function formatHomeValue(buildingId, value) {
+function formatHomeValue(buildingId, value, tier) {
   if (buildingId === 'couch') {
     // Показываем не множитель, а сколько секунд до полной батарейки.
     // База: 1/6 ⚡/с при value=1 → 600c. value 2.5 → 240c.
@@ -340,6 +406,11 @@ function formatHomeValue(buildingId, value) {
   }
   if (buildingId === 'fridge') return `${value}× (${Math.round(value * FATIGUE.recoverPerHour)}/час)`;
   if (buildingId === 'trailer') return `${value}⚡`;
+  if (buildingId === 'coffee') {
+    const ttlBonus = HOME_UPGRADES.coffee.tiers[Math.max(0, (tier || 1) - 1)].ttlBonus || 0;
+    const ttlStr = ttlBonus > 0 ? `, +${ttlBonus.toFixed(1)}с TTL` : '';
+    return `×${value.toFixed(1)} шанс${ttlStr}`;
+  }
   return String(value);
 }
 
@@ -367,7 +438,46 @@ function renderBar() {
   }
   const canFight = barState.tickets > 0;
   const next = formatTicketCountdown(getNextTicketSec());
+  const opponent = getCurrentOpponent();
+  const nextIdx = (barState.currentOpponentIdx + 1) % BAR_OPPONENTS.length;
+  const nextOpponent = BAR_OPPONENTS[nextIdx];
+  const barLevel = barState.medals + 1;
+  // Точки прогресса побед X/3 (на текущем противнике)
+  const progDots = [];
+  for (let i = 0; i < BAR.winsPerOpponent; i++) {
+    progDots.push(`<span class="bar-win-dot${i < barState.winsOnCurrent ? ' on' : ''}"></span>`);
+  }
+  // Особенности противника (короткими бэйджами)
+  const traitTags = [];
+  if (opponent.critChance)  traitTags.push(`✨ ${Math.round(opponent.critChance * 100)}% крит`);
+  if (opponent.dodgeChance) traitTags.push(`💨 ${Math.round(opponent.dodgeChance * 100)}% уворот`);
+  if (opponent.enrageAt)    traitTags.push(`💢 ярость <${Math.round(opponent.enrageAt * 100)}% HP`);
+  const traitsHtml = traitTags.length
+    ? `<div class="bar-opp-traits">${traitTags.map(t => `<span class="bar-trait">${t}</span>`).join('')}</div>`
+    : `<div class="bar-opp-traits empty">— без особенностей</div>`;
   root.innerHTML = `
+    <div class="bar-opp-card">
+      <div class="bar-opp-head">
+        <span class="bar-opp-icon">${opponent.icon}</span>
+        <div class="bar-opp-id">
+          <div class="bar-opp-name">${opponent.name}</div>
+          <div class="bar-opp-lvl">ур. ${barLevel}</div>
+        </div>
+        <div class="bar-opp-progress">
+          <div class="bar-opp-progress-label">ПОБЕДЫ</div>
+          <div class="bar-opp-progress-dots">${progDots.join('')}</div>
+        </div>
+      </div>
+      <div class="bar-opp-stats">
+        <span class="bar-stat"><span class="ic">❤</span> ×${opponent.hpMult.toFixed(1)} HP</span>
+        <span class="bar-stat"><span class="ic">⚔</span> ×${opponent.dmgMult.toFixed(1)} УРОН</span>
+      </div>
+      ${traitsHtml}
+      <div class="bar-opp-reward">
+        <span class="lbl">НАГРАДА:</span>
+        <span class="val">${previewRewardLabel(opponent)}</span>
+      </div>
+    </div>
     <div class="row">
       <span class="lbl">Билеты:</span>
       <div class="tickets-display">${ticketsHtml.join('')}</div>
@@ -376,23 +486,184 @@ function renderBar() {
       <span class="lbl">Регенерация:</span>
       <span class="next-ticket-text">${next}</span>
     </div>
-    <div class="row">
-      <span class="lbl">Награда:</span>
-      <span class="val">🎰 +1 жетон</span>
-    </div>
-    <div class="row">
-      <span class="lbl">Побед:</span>
-      <span class="val">${barState.medals}</span>
-    </div>
-    <div class="row">
-      <span class="lbl">Следующий босс:</span>
-      <span class="val">ур. ${barState.medals + 1}</span>
-    </div>
     <button class="fight-btn${canFight && ftue.pulseIfPending('barFight') ? ' ftue-pulse-btn' : ''}" id="bar-fight-btn" ${canFight ? '' : 'disabled'}>
       ⚔️ В РИНГ (1 🎟️)
     </button>
+    <div class="bar-next-teaser">След.: ${nextOpponent.icon} ${nextOpponent.name}</div>
   `;
   $('bar-fight-btn').addEventListener('click', () => onBarFight());
+}
+
+// ───────── Скретч-карта ─────────
+// Показ оверлея после победы в баре. Раскрывает 3 ячейки (target-icon / X), на «ЗАБРАТЬ» вызывает onClaim.
+// Размер награды задан тиром (заранее), а игрок раскрытием просто видит исход.
+
+const MISS_SYMBOL = '✖';
+
+export function showScratchCard({ opponent, tier, reward, bonusStickerId, onClaim }) {
+  const overlay = $('scratch-overlay');
+  if (!overlay) return;
+  const targetIcon = scratchTargetIcon(opponent);
+  // Раскладка 3 ячеек: ровно `tier` target'ов, остальное — X. Перемешать.
+  const cells = [];
+  for (let i = 0; i < 3; i++) cells.push(i < tier ? targetIcon : MISS_SYMBOL);
+  for (let i = cells.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [cells[i], cells[j]] = [cells[j], cells[i]];
+  }
+  const cellsHtml = cells.map((sym, idx) => {
+    const isMiss = sym === MISS_SYMBOL;
+    return `<div class="scratch-cell${isMiss ? ' miss' : ''}" data-idx="${idx}">
+      <div class="cover"></div>
+      <div class="sym">${sym}</div>
+    </div>`;
+  }).join('');
+  const tierLabel = tier === 3 ? 'ДЖЕКПОТ ×3' : tier === 2 ? '×2 СОВПАДЕНИЯ' : '×1';
+  const bonusStickerHtml = bonusStickerId
+    ? `<div class="scratch-bonus-sticker">+ 📼 ${STICKERS[bonusStickerId]?.icon || ''} ${STICKERS[bonusStickerId]?.name || ''}</div>`
+    : '';
+  overlay.innerHTML = `
+    <div class="scratch-panel">
+      <div class="scratch-head">
+        <div class="scratch-title">СКРЕТЧ-КАРТА</div>
+        <div class="scratch-from">от ${opponent.icon} ${opponent.name}</div>
+      </div>
+      <div class="scratch-cells">${cellsHtml}</div>
+      <button class="scratch-reveal-all" id="scratch-reveal-all">ОТКРЫТЬ ВСЁ</button>
+      <div class="scratch-reward hidden" id="scratch-reward-block">
+        <div class="scratch-tier" id="scratch-tier-line">${tierLabel}</div>
+        <div class="scratch-reward-label" id="scratch-reward-label">${reward.label}</div>
+        ${bonusStickerHtml}
+      </div>
+      <button class="scratch-claim" id="scratch-claim" disabled>ЗАБРАТЬ</button>
+    </div>
+  `;
+  overlay.classList.add('show');
+
+  let revealedCount = 0;
+  const claimBtn = $('scratch-claim');
+  const rewardBlock = $('scratch-reward-block');
+  const finalize = () => {
+    if (revealedCount < 3) return;
+    rewardBlock.classList.remove('hidden');
+    claimBtn.disabled = false;
+  };
+  const revealCell = (cellEl) => {
+    if (cellEl.classList.contains('revealed')) return;
+    cellEl.classList.add('revealed');
+    revealedCount++;
+    finalize();
+  };
+  overlay.querySelectorAll('.scratch-cell').forEach(el => {
+    el.addEventListener('click', () => revealCell(el));
+  });
+  $('scratch-reveal-all').addEventListener('click', () => {
+    overlay.querySelectorAll('.scratch-cell').forEach(revealCell);
+  });
+  claimBtn.addEventListener('click', () => {
+    overlay.classList.remove('show');
+    overlay.innerHTML = '';
+    onClaim?.();
+  });
+}
+
+// ───────── Стикеры ─────────
+
+// Мета бонусов стикеров — иконка + короткий лейбл + формат значения.
+// Используется тем же паттерном, что affixPillHtml для шмота — единый визуальный язык.
+const STICKER_BONUS_DISPLAY = {
+  damagePct:          { icon: '⚔',  label: 'УРОН',     fmt: (v) => `+${Math.round(v * 100)}%` },
+  critChance:         { icon: '✨', label: 'КРИТ',     fmt: (v) => `+${Math.round(v * 100)}%` },
+  critMultiplier:     { icon: '💥', label: 'УР.КРИТА', fmt: (v) => `+${Math.round(v * 100)}%` },
+  maxHp:              { icon: '❤',  label: 'HP',       fmt: (v) => `+${v}` },
+  attackSpeedPct:     { icon: '⚡', label: 'СК.АТК',   fmt: (v) => `+${Math.round(v * 100)}%` },
+  dodgeChance:        { icon: '💨', label: 'УВОРОТ',   fmt: (v) => `+${Math.round(v * 100)}%` },
+  moveSpeedPct:       { icon: '👟', label: 'СКОРОСТЬ', fmt: (v) => `+${Math.round(v * 100)}%` },
+  hpRegenInBattlePct: { icon: '🩹', label: 'HP-РЕГ',   fmt: (v) => `+${Math.round(v * 100)}%` },
+  coinPct:            { icon: '💰', label: 'МОНЕТЫ',   fmt: (v) => `+${Math.round(v * 100)}%` },
+  xpPct:              { icon: '⭐', label: 'XP',        fmt: (v) => `+${Math.round(v * 100)}%` },
+  energyRegenPct:     { icon: '🔋', label: 'ЭНЕРГИЯ',  fmt: (v) => `+${Math.round(v * 100)}%` },
+  statLevelOffset:    { icon: '📈', label: 'УР.СТАТОВ', fmt: (v) => `+${v}` },
+};
+
+function stickerBonusPillHtml(type, value) {
+  const meta = STICKER_BONUS_DISPLAY[type];
+  const icon = meta?.icon || '?';
+  const label = meta?.label || type.toUpperCase();
+  const val = meta ? meta.fmt(value) : `+${value}`;
+  return `<span class="affix-pill"><span class="pill-icon">${icon}</span>${val}<span class="pill-label">${label}</span></span>`;
+}
+
+function stickerBonusesPillsHtml(bonuses) {
+  return Object.entries(bonuses).map(([k, v]) => stickerBonusPillHtml(k, v)).join('');
+}
+
+function renderStickers() {
+  const grid = $('stickers-grid');
+  const totalEl = $('stickers-total');
+  if (!grid) return;
+
+  const unlocked = getUnlockedStickers();
+  if (totalEl) {
+    totalEl.textContent = `${unlocked.size} / 25 НАКЛЕЕК`;
+  }
+
+  const rowsHtml = Object.entries(STICKER_SETS).map(([setId, setDef]) => {
+    const ids = stickerIdsInSet(setId);
+    const have = ids.filter(id => unlocked.has(id)).length;
+    const complete = isSetComplete(setId);
+    const setBonusPills = stickerBonusesPillsHtml(setDef.setBonus);
+    const cellsHtml = ids.map(id => {
+      const s = STICKERS[id];
+      const isOn = isStickerUnlocked(id);
+      const bonusHtml = isOn
+        ? `<div class="affix-line">${stickerBonusesPillsHtml(s.bonuses)}</div>`
+        : `<div class="sticker-locked-bonus">???</div>`;
+      return `
+        <div class="sticker-card${isOn ? ' unlocked' : ''}">
+          <div class="sticker-card-head">
+            <span class="ic">${s.icon}</span>
+            <span class="nm">${isOn ? s.name : '???'}</span>
+          </div>
+          ${bonusHtml}
+        </div>`;
+    }).join('');
+    return `
+      <div class="sticker-set${complete ? ' complete' : ''}">
+        <div class="sticker-set-head">
+          <span class="icon">${setDef.icon}</span>
+          <span class="name">${setDef.name}</span>
+          <span class="progress">${have}/${ids.length}</span>
+        </div>
+        <div class="sticker-set-bonus">
+          <span class="set-bonus-label">СЕТ-БОНУС${complete ? ' ✓' : ''}</span>
+          <span class="affix-line">${setBonusPills}</span>
+        </div>
+        <div class="sticker-source">Источник: ${setDef.desc}</div>
+        <div class="sticker-row">${cellsHtml}</div>
+      </div>`;
+  }).join('');
+
+  grid.innerHTML = rowsHtml;
+}
+
+let stickerToastTimer = null;
+export function showStickerToast(stickerId) {
+  const el = $('sticker-toast');
+  if (!el) return;
+  const s = STICKERS[stickerId];
+  if (!s) return;
+  el.innerHTML = `
+    <span class="icon">${s.icon}</span>
+    <span class="label">НОВАЯ НАКЛЕЙКА</span>
+    <div class="name">${s.name}</div>
+    <div class="bonus affix-line">${stickerBonusesPillsHtml(s.bonuses)}</div>
+  `;
+  if (stickerToastTimer) clearTimeout(stickerToastTimer);
+  el.classList.remove('show');
+  void el.offsetWidth;
+  el.classList.add('show');
+  stickerToastTimer = setTimeout(() => el.classList.remove('show'), 2400);
 }
 
 function renderHouse() {
@@ -404,10 +675,24 @@ function renderHouse() {
     const info = getHomeBuildingInfo(buildingId);
     const card = document.createElement('div');
     card.className = 'trainer-card';
+    // Залоченные постройки — серая карточка с подсказкой «Доступно с L_N». Показываем чтобы
+    // игрок видел впереди что разлочится, и понимал drip-расписание дома.
+    if (!info.isUnlocked) {
+      card.classList.add('locked');
+      card.innerHTML = `
+        <div class="head">
+          <div><span class="icon">${info.icon}</span> ${info.name.toUpperCase()}</div>
+          <div class="level lock-hint">🔒 ${info.unlockHint || ''}</div>
+        </div>
+        <div class="bonus-desc">${info.desc}</div>
+      `;
+      root.appendChild(card);
+      continue;
+    }
     const canUpgrade = !info.isMaxTier && currentNuts() >= info.nextNutCost;
     const showPulse = canUpgrade && homeFtuePulse;
-    const curStr = formatHomeValue(buildingId, info.currentValue);
-    const nextStr = info.nextValue != null ? formatHomeValue(buildingId, info.nextValue) : '—';
+    const curStr = formatHomeValue(buildingId, info.currentValue, info.tier);
+    const nextStr = info.nextValue != null ? formatHomeValue(buildingId, info.nextValue, info.tier + 1) : '—';
     card.innerHTML = `
       <div class="head">
         <div>
@@ -436,6 +721,9 @@ function renderHouse() {
 // ───────── Лоадаут / Арсенал ─────────
 
 function renderLoadoutSlots() {
+  const filled = loadoutState.selected.filter(s => s).length;
+  const slotCounter = $('loadout-slot-counter');
+  if (slotCounter) slotCounter.textContent = `${filled}/${loadoutState.selected.length}`;
   const root = $('loadout-slots');
   root.innerHTML = '';
   for (let i = 0; i < loadoutState.selected.length; i++) {
@@ -553,6 +841,16 @@ function renderSkillDetails() {
       if (tryUpgradeSkill(id)) {
         logEvent(`${def.name}: ур. ${getSkillLevel(id)}`, 'kill');
         renderSkillDetails();
+        rebuildGachaStrip();   // обновить бейджи can-upgrade (шарды уменьшились, бейдж может пропасть)
+        // FX: punch на level-badge + расходящийся ring по карточке. Класс снимается, чтобы
+        // повторный апгрейд снова запустил анимацию (без force-reflow браузер не перезапустит).
+        const card = $('skill-details');
+        if (card) {
+          card.classList.remove('levelup-fx');
+          void card.offsetWidth;
+          card.classList.add('levelup-fx');
+          setTimeout(() => card.classList.remove('levelup-fx'), 600);
+        }
       }
     });
   }
@@ -570,6 +868,9 @@ const ALL_SKILL_IDS = Object.keys(SKILLS);
 function renderGacha() {
   const tokens = loadoutState.gachaTokens || 0;
   $('gacha-tokens').textContent = tokens;
+  const filled = loadoutState.selected.filter(s => s).length;
+  const slotCounter = $('loadout-slot-counter');
+  if (slotCounter) slotCounter.textContent = `${filled}/${loadoutState.selected.length}`;
   const spinBtn = $('gacha-spin');
   spinBtn.disabled = gachaSpinning || tokens === 0;
   // FTUE: пульс на «КРУТИТЬ» если есть жетон и игрок ещё ни разу не крутил.
@@ -588,6 +889,8 @@ function rebuildGachaStrip() {
     const isLocked = !loadoutState.unlocked.includes(id);
     const isEquipped = loadoutState.selected.includes(id);
     const isSelected = id === selectedSkillId;
+    const upCost = isLocked ? null : getSkillUpgradeCost(id);
+    const canUpgrade = upCost != null && getSkillShards(id) >= upCost;
     div.className = 'gacha-icon ' + (isLocked ? 'locked' : 'unlocked')
       + (isEquipped ? ' equipped' : '')
       + (isSelected ? ' selected' : '');
@@ -597,6 +900,7 @@ function rebuildGachaStrip() {
       <div class="icon">${SKILL_ICONS[id] || '?'}</div>
       <div class="name">${SKILL_SHORT_NAMES[id] || SKILLS[id].name}</div>
       ${isLocked ? '<span class="lock">🔒</span>' : ''}
+      ${canUpgrade ? '<span class="upgrade-ready" title="Хватает шардов на прокачку">⬆</span>' : ''}
     `;
     div.title = isLocked
       ? `${SKILLS[id].name} (закрыт)`
@@ -716,13 +1020,39 @@ export function renderTapDynamic() {
   $('tap-xp-text').textContent = `XP ${Math.floor(xp.current)}/${xp.needed}`;
   $('tap-xp-level').textContent = `ур. ${xp.level}`;
   $('tap-xp-fill').style.width = `${(xp.current / xp.needed) * 100}%`;
+  // Milestone-счётчик: показывает прогресс этого тренажёра к следующей разлочке.
+  const mEl = $('tap-milestone');
+  if (mEl) {
+    const next = nextMilestone(t.lifetimeTaps);
+    mEl.textContent = next
+      ? `${next.icon} ${t.lifetimeTaps}/${next.taps}`
+      : '★ макс';
+  }
   renderTapStatic();
+  renderGoldenZone(s);
+}
+
+function renderGoldenZone(s) {
+  const el = $('zone-gold');
+  if (!el) return;
+  if (!s.goldenZone) {
+    el.style.display = 'none';
+    el.classList.remove('ending');
+    return;
+  }
+  const g = s.goldenZone;
+  el.style.display = 'block';
+  el.style.left  = `${g.x * TAP_BAR_PX_WIDTH_RATIO}%`;
+  el.style.width = `${g.width * TAP_BAR_PX_WIDTH_RATIO}%`;
+  // Последние endingThreshold секунд — мигаем, чтобы предупредить об исчезновении.
+  el.classList.toggle('ending', g.ttl <= GOLDEN_ZONE.endingThreshold);
 }
 
 const ZONE_COLORS = {
   green:  '#5be35b',
   yellow: '#ffd23f',
   red:    '#ff5a5a',
+  golden: '#ffd23f',
 };
 
 export function spawnXpFly(amount, zone = 'green') {
@@ -782,12 +1112,37 @@ export function flashTapFeedback(result) {
     fb.className = 'red';
     return;
   }
-  const sym = result.zone === 'green' ? '★' : result.zone === 'yellow' ? '◆' : '✕';
+  const sym = result.zone === 'golden' ? '✦'
+            : result.zone === 'green'  ? '★'
+            : result.zone === 'yellow' ? '◆'
+            : '✕';
   const tail = result.capReached
     ? ' · УРОВЕНЬ ВВЕРХ! CAP — апгрейдь тренажёр'
     : (result.leveledUp ? ' · УРОВЕНЬ ВВЕРХ!' : '');
-  fb.textContent = `${sym} ${result.zone.toUpperCase()}  +${result.xpGain} XP  −${result.energySpent}⚡${tail}`;
+  const label = result.zone === 'golden' ? 'ЗОЛОТО' : result.zone.toUpperCase();
+  const energySuffix = result.zone === 'golden' ? '  (бесплатно!)' : `  −${result.energySpent}⚡`;
+  fb.textContent = `${sym} ${label}  +${result.xpGain} XP${energySuffix}${tail}`;
   fb.className = result.zone;
+  // Milestone-toast при свежедостигнутых milestone'ах в этом тапе.
+  if (Array.isArray(result.milestones) && result.milestones.length > 0) {
+    showMilestoneToast(result.milestones[0]);
+  }
+}
+
+let milestoneToastTimer = null;
+function showMilestoneToast(m) {
+  const el = $('milestone-toast');
+  if (!el) return;
+  el.innerHTML = `
+    <span class="icon">${m.icon}</span>
+    <span class="label">${m.label.toUpperCase()}</span>
+    <div class="desc">${m.desc}</div>
+  `;
+  if (milestoneToastTimer) clearTimeout(milestoneToastTimer);
+  el.classList.remove('show');
+  void el.offsetWidth;
+  el.classList.add('show');
+  milestoneToastTimer = setTimeout(() => el.classList.remove('show'), 2400);
 }
 
 export function bindTapButton(onTap) {
@@ -846,6 +1201,9 @@ function renderItemCard(item, isEquipped) {
   const upBadgeHtml = upLvl > 0
     ? `<span class="upgrade-badge${atMax ? ' max' : ''}">+${upLvl}${atMax ? ' MAX' : ''}</span>`
     : '';
+  const betterBadgeHtml = !isEquipped && isItemBetterThanEquipped(item)
+    ? '<span class="better-badge">↑ ЛУЧШЕ НАДЕТОГО</span>'
+    : '';
 
   const affixesHtml = item.affixes.length
     ? `<div class="affix-line">${item.affixes.map(affixPillHtml).join('')}</div>`
@@ -873,6 +1231,7 @@ function renderItemCard(item, isEquipped) {
       <span class="head-left">
         <span class="rarity-tag" style="color:${r.color}">${r.name.toUpperCase()}</span>
         ${upBadgeHtml}
+        ${betterBadgeHtml}
       </span>
       ${isEquipped ? '<span class="equip-tag"></span>' : ''}
     </div>

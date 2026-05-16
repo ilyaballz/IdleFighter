@@ -10,6 +10,7 @@ import { loadoutState } from './loadout.js';
 import { inventoryState, getNextItemId, setNextItemId } from './inventory.js';
 import { hubState } from '../hub/state.js';
 import { barState } from './bar_state.js';
+import { serializeStickers, deserializeStickers } from './stickers_state.js';
 import * as ftue from './ftue.js';
 
 const STORAGE_KEY = 'streetbrawler_save_v1';
@@ -37,9 +38,9 @@ export function saveGame() {
       energy: hubState.energy,
       currentLocationIndex: hubState.currentLocationIndex,
       trainers: {
-        strength:  { tier: hubState.trainers.strength.tier  },
-        toughness: { tier: hubState.trainers.toughness.tier },
-        agility:   { tier: hubState.trainers.agility.tier   },
+        strength:  { tier: hubState.trainers.strength.tier,  lifetimeTaps: hubState.trainers.strength.lifetimeTaps  | 0 },
+        toughness: { tier: hubState.trainers.toughness.tier, lifetimeTaps: hubState.trainers.toughness.lifetimeTaps | 0 },
+        agility:   { tier: hubState.trainers.agility.tier,   lifetimeTaps: hubState.trainers.agility.lifetimeTaps   | 0 },
       },
       home: { ...hubState.home },
     },
@@ -66,7 +67,10 @@ export function saveGame() {
       tickets: barState.tickets,
       ticketAccum: barState.ticketAccum,
       medals: barState.medals,
+      currentOpponentIdx: barState.currentOpponentIdx,
+      winsOnCurrent: barState.winsOnCurrent,
     },
+    stickers: serializeStickers(),
     ftue: ftue.serialize(),
   };
   try {
@@ -102,10 +106,17 @@ export function loadGame() {
   if (data.hub?.energy != null)               hubState.energy = data.hub.energy;
   if (data.hub?.currentLocationIndex != null) hubState.currentLocationIndex = data.hub.currentLocationIndex;
   for (const s of ['strength', 'toughness', 'agility']) {
-    const t = data.hub?.trainers?.[s]?.tier;
-    if (typeof t === 'number') hubState.trainers[s].tier = t;
+    const tr = data.hub?.trainers?.[s];
+    if (typeof tr?.tier === 'number') hubState.trainers[s].tier = tr.tier;
+    if (typeof tr?.lifetimeTaps === 'number') hubState.trainers[s].lifetimeTaps = tr.lifetimeTaps;
   }
-  if (data.hub?.home) Object.assign(hubState.home, data.hub.home);
+  if (data.hub?.home) {
+    // Back-compat: mirror → coffee (старое имя постройки до переименования в Кофеварку).
+    const h = { ...data.hub.home };
+    if (h.mirror != null && h.coffee == null) { h.coffee = h.mirror; }
+    delete h.mirror;
+    Object.assign(hubState.home, h);
+  }
 
   // Loadout
   if (Array.isArray(data.loadout?.unlocked)) loadoutState.unlocked = [...data.loadout.unlocked];
@@ -128,9 +139,14 @@ export function loadGame() {
   if (typeof data.inventory?.nextItemId === 'number') setNextItemId(data.inventory.nextItemId);
 
   // Bar — старые сейвы могут содержать ownedPerks/pendingChoice, мы их игнорим.
-  if (typeof data.bar?.tickets === 'number')     barState.tickets = data.bar.tickets;
-  if (typeof data.bar?.ticketAccum === 'number') barState.ticketAccum = data.bar.ticketAccum;
-  if (typeof data.bar?.medals === 'number')      barState.medals = data.bar.medals;
+  if (typeof data.bar?.tickets === 'number')            barState.tickets = data.bar.tickets;
+  if (typeof data.bar?.ticketAccum === 'number')        barState.ticketAccum = data.bar.ticketAccum;
+  if (typeof data.bar?.medals === 'number')             barState.medals = data.bar.medals;
+  if (typeof data.bar?.currentOpponentIdx === 'number') barState.currentOpponentIdx = data.bar.currentOpponentIdx;
+  if (typeof data.bar?.winsOnCurrent === 'number')      barState.winsOnCurrent = data.bar.winsOnCurrent;
+
+  // Stickers — back-compat: старые сейвы без блока → коллекция пустая.
+  deserializeStickers(data.stickers);
 
   // FTUE — back-compat: старые сейвы без блока → reset, флаги остаются дефолтные false.
   if (data.ftue) ftue.deserialize(data.ftue);

@@ -47,6 +47,11 @@ export function drawWorld(ctx, world) {
 
   const currentArena = world.location.arenas[world.hero.targetArenaIndex - 1];
   if (currentArena && currentArena.enemies) {
+    // Aura rings — отдельным проходом ПОД врагами (чтобы враги визуально стояли «на ауре»).
+    for (const e of currentArena.enemies) {
+      if (!e.alive || !e.aura) continue;
+      drawAuraRing(ctx, e, world.timeNow);
+    }
     for (const e of currentArena.enemies) {
       if (!e.alive) continue;
       drawEnemy(ctx, e, world.timeNow);
@@ -96,6 +101,28 @@ function drawProjectiles(ctx, projectiles, timeNow) {
     ctx.stroke();
     ctx.restore();
   }
+}
+
+// Aura ring — еле заметный пульсирующий круг под юнитом-носителем.
+// Цвет берём из e.aura.color (зелёный для Лекаря). Пульс синхронизирован с tickSec.
+// Заливка тише обводки — обводка задаёт границу ауры, заливка только подсвечивает зону.
+function drawAuraRing(ctx, e, timeNow) {
+  const a = e.aura;
+  const color = a.color || '#5be35b';
+  const period = Math.max(0.5, a.tickSec);
+  const phase = ((timeNow % period) / period) * Math.PI * 2;
+  const pulse = 0.5 + 0.5 * Math.sin(phase);   // 0..1
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(e.x, e.y, a.radius, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.globalAlpha = 0.03 + 0.03 * pulse;       // 3..6%
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = 0.12 + 0.10 * pulse;       // 12..22%
+  ctx.stroke();
+  ctx.restore();
 }
 
 function drawSlamMarker(ctx, ps, timeNow) {

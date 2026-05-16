@@ -1,7 +1,7 @@
 // Бой: state-машины героя/врагов, движение, автоатаки, формула урона, скиллы.
 
 import { getEffectiveStat, heroState } from '../core/stats_layer.js';
-import { spawnPlanForArena, randomSpawnPos, buildBarBossTemplate } from './arena.js';
+import { spawnPlanForArena, randomSpawnPos, buildBarOpponentTemplate, buildEnemyTemplate } from './arena.js';
 import { logEvent } from '../core/logger.js';
 import { SKILLS } from '../balance/skills.js';
 import { FEEDBACK } from '../balance/visuals.js';
@@ -81,20 +81,44 @@ export function createEnemyFromTemplate(template, pos) {
     bleedStacks: 0,            // стаки bleed (cut). 0 = не кровит. Тег для синергий.
     knockdownUntil: 0,         // мировое время — пока меньше, враг лежит, не двигается, не атакует
     markedUntil: 0,            // мировое время — пока меньше, цель помечена (приоритет для skill-targeting)
+    // ───── Boss trigger config (CHAPTER_BOSSES, конфиг-driven). Поля строго перечислены,
+    //        чтобы не теряться при копировании — см. feedback_chapter_skin_vs_kind.
+    summonAt: template.summonAt ?? null,            // порог HP%, при пересечении один раз spawn миньонов
+    summonKind: template.summonKind || null,
+    summonCount: template.summonCount || 0,
+    triggeredSummon: false,
+    enrageAt: template.enrageAt ?? null,            // порог HP%, при пересечении один раз — берсерк
+    enrageDmgMult: template.enrageDmgMult || 1,
+    enrageAtkSpdMult: template.enrageAtkSpdMult || 1,
+    enrageDurationSec: template.enrageDurationSec || 0,
+    triggeredEnrage: false,
+    enragedUntil: 0,                                // мировое время — пока меньше, действуют множители
+    // Универсальные поля темплейта врага (по аналогии с героем).
+    // critChance: шанс крита по герою (атакой/projectile). critMultiplier: множитель урона крита.
+    // dodgeChance: шанс уклониться от любого хита по врагу (атаки + скиллы) — чек в dealDamage.
+    critChance:     template.critChance     || 0,
+    critMultiplier: template.critMultiplier || 2.0,
+    dodgeChance:    template.dodgeChance    || 0,
+    // Aura — саппорт-эффект (heal/buff союзникам в радиусе). Тикает в battle/battle.js tickAuras.
+    // null если у юнита нет ауры. auraNextTickAt инициализируется лениво при первом тике.
+    aura: template.aura || null,
+    auraNextTickAt: 0,
+    // Поведенческий флаг: ranged-враг отступает если игрок ближе attackRange (chapter-skin Снайпер).
+    kiteRetreat: template.kiteRetreat || false,
     alive: true,
   };
 }
 
 export function spawnArenaEnemies(arena, locationIndex) {
-  // Спец-кейс: арена бара — один босс, отскейленный под уровень героя.
-  if (arena.barBossLevel != null) {
-    const tmpl = buildBarBossTemplate(arena.barBossLevel);
+  // Спец-кейс: арена бара — один противник из BAR_OPPONENTS, отскейленный под barLevel.
+  if (arena.barOpponent != null) {
+    const tmpl = buildBarOpponentTemplate(arena.barOpponent, arena.barLevel || 1);
     return [createEnemyFromTemplate(tmpl, randomSpawnPos(arena))];
   }
   const plan = spawnPlanForArena(arena, locationIndex);
   const enemies = [];
   for (const tmpl of plan) {
-    enemies.push(createEnemyFromTemplate(tmpl, randomSpawnPos(arena)));
+    enemies.push(createEnemyFromTemplate(tmpl, randomSpawnPos(arena, tmpl.kind)));
   }
   return enemies;
 }
@@ -201,6 +225,13 @@ function applyKnockback(enemy, fromX, fromY, dist, world) {
 // корректной агрегации (lifesteal, totalDmg в логе).
 function dealDamage(enemy, amount, isCrit, fromX, fromY, world, knockbackDist = 0, def = null) {
   if (!enemy.alive) return 0;
+  // Уворот врага: чек до начисления урона. Применяется к ЛЮБОМУ хиту (auto-attack + скиллы),
+  // чтобы dodgeChance был одинаково ценен против всех источников. Лог появляется, чтобы игрок
+  // видел причину «нулевого» удара (важно для уникальных врагов типа Жорика в баре).
+  if (enemy.dodgeChance > 0 && Math.random() < enemy.dodgeChance) {
+    logEvent(`${enemy.name} увернулся`);
+    return 0;
+  }
   let mult = 1;
   if (def) {
     if (def.bonusVsBleedingPct && (enemy.bleedStacks || 0) > 0) mult += def.bonusVsBleedingPct;
@@ -255,20 +286,46 @@ function damageHero(damage, sourceName, hero, world) {
   return true;
 }
 
+// Текущий damage врага с учётом enrage-баффа (если активен).
+function getEnemyDamageNow(enemy, world) {
+  const enraged = enemy.enragedUntil > world.timeNow;
+  return enraged ? enemy.damage * enemy.enrageDmgMult : enemy.damage;
+}
+
+// Текущий attackSpeed врага с учётом enrage-баффа.
+function getEnemyAttackSpeedNow(enemy, world) {
+  const enraged = enemy.enragedUntil > world.timeNow;
+  return enraged ? enemy.attackSpeed * enemy.enrageAtkSpdMult : enemy.attackSpeed;
+}
+
 function enemyAttackHero(enemy, hero, world) {
-  damageHero(enemy.damage, enemy.name, hero, world);
+  let dmg = getEnemyDamageNow(enemy, world);
+  const isCrit = enemy.critChance > 0 && Math.random() < enemy.critChance;
+  if (isCrit) {
+    dmg *= enemy.critMultiplier;
+    logEvent(`${enemy.name}: КРИТ ×${enemy.critMultiplier}!`, 'warn');
+  }
+  damageHero(dmg, enemy.name, hero, world);
 }
 
 // Бросок projectile от ranged-врага. Snapshot позиции героя на момент броска —
 // projectile полетит туда, и приземлится на позиции мыши^W героя через PROJECTILE_DURATION.
-const PROJECTILE_DURATION = 0.6;
+const PROJECTILE_DURATION = 0.5;
 const PROJECTILE_LANDING_RADIUS = 32;
 
 function rangedEnemyAttack(enemy, hero, world) {
   if (!world.projectiles) world.projectiles = [];
+  // Крит-ролл снапшотится в момент броска (а не приземления) — это даёт игроку шанс увернуться
+  // от уже «решённого» крита через позиционирование. Логирование тоже на броске.
+  let dmg = getEnemyDamageNow(enemy, world);
+  const isCrit = enemy.critChance > 0 && Math.random() < enemy.critChance;
+  if (isCrit) {
+    dmg *= enemy.critMultiplier;
+    logEvent(`${enemy.name}: КРИТ ×${enemy.critMultiplier} в полёте!`, 'warn');
+  }
   world.projectiles.push({
     sourceName: enemy.name,
-    damage: enemy.damage,
+    damage: dmg,
     startX: enemy.x,
     startY: enemy.y,
     targetX: hero.x,         // snapshot позиции героя
@@ -800,6 +857,38 @@ function executePendingSlam(hero, world) {
 }
 
 
+// ───────── Auras (Лекарь и future-саппорты) ─────────
+// Универсальный тик: для каждого живого врага с aura — каждые tickSec применяем effect
+// к союзникам в радиусе. Сейчас effect='heal'; легко расширить на 'damageBuff' и т.п.
+function tickAuras(arena, world) {
+  if (!arena || !arena.enemies) return;
+  for (const src of arena.enemies) {
+    if (!src.alive || !src.aura) continue;
+    if (src.auraNextTickAt === 0) {
+      src.auraNextTickAt = world.timeNow + src.aura.tickSec;
+      continue;
+    }
+    if (world.timeNow < src.auraNextTickAt) continue;
+    applyAuraTick(src, arena);
+    src.auraNextTickAt = world.timeNow + src.aura.tickSec;
+  }
+}
+
+function applyAuraTick(source, arena) {
+  const aura = source.aura;
+  const r = aura.radius;
+  for (const target of arena.enemies) {
+    if (!target.alive) continue;
+    const d = Math.hypot(target.x - source.x, target.y - source.y);
+    if (d > r + target.radius) continue;
+    if (aura.effect === 'heal') {
+      // Хил в % от maxHp цели — скейлится с типом врага. Лекарь хилит и себя.
+      const heal = Math.round(target.maxHp * aura.powerPct);
+      if (heal > 0) target.hp = Math.min(target.maxHp, target.hp + heal);
+    }
+  }
+}
+
 // ───────── DoT и баффы ─────────
 
 function tickDots(arena, world) {
@@ -829,6 +918,46 @@ function tickHeroCooldowns(hero, dt) {
   for (const id of Object.keys(hero.skillCooldowns)) {
     if (hero.skillCooldowns[id] > 0) {
       hero.skillCooldowns[id] = Math.max(0, hero.skillCooldowns[id] - dt);
+    }
+  }
+}
+
+// ───────── Boss triggers (CHAPTER_BOSSES) ─────────
+// Срабатывают разово при пересечении порога HP%. Обработчик централизован, чтобы добавление
+// новых триггеров было однострочной правкой в одном месте.
+
+function spawnBossMinions(boss, arena, world) {
+  const locationIndex = world.location.locationIndex;
+  for (let i = 0; i < boss.summonCount; i++) {
+    // Миньоны слабее «обычных» того же kind'а: телохранители, не самостоятельные боссы.
+    const tmpl = buildEnemyTemplate(
+      { kind: boss.summonKind, scaleHp: 0.7, scaleDmg: 0.8 },
+      locationIndex, arena.index
+    );
+    const minion = createEnemyFromTemplate(tmpl, randomSpawnPos(arena, tmpl.kind));
+    minion.state = ENEMY_STATE.CHASING;
+    arena.enemies.push(minion);
+  }
+  logEvent(`${boss.name} зовёт телохранителей (×${boss.summonCount})`, 'warn');
+}
+
+function triggerBossEnrage(boss, world) {
+  boss.enragedUntil = world.timeNow + boss.enrageDurationSec;
+  logEvent(`${boss.name} ВПАЛ В ЯРОСТЬ! (${boss.enrageDurationSec}с)`, 'warn');
+}
+
+function tickBossTriggers(arena, world) {
+  if (!arena || !arena.enemies) return;
+  for (const e of arena.enemies) {
+    if (!e.alive) continue;
+    const hpPct = e.hp / e.maxHp;
+    if (e.summonAt != null && !e.triggeredSummon && hpPct <= e.summonAt) {
+      e.triggeredSummon = true;
+      spawnBossMinions(e, arena, world);
+    }
+    if (e.enrageAt != null && !e.triggeredEnrage && hpPct <= e.enrageAt) {
+      e.triggeredEnrage = true;
+      triggerBossEnrage(e, world);
     }
   }
 }
@@ -886,8 +1015,10 @@ export function updateBattle(world, dt) {
 
   const currentArena = location.arenas[hero.targetArenaIndex - 1];
   if (currentArena && currentArena.activated) {
+    tickBossTriggers(currentArena, world);
     updateEnemies(currentArena, world, dt);
     tickDots(currentArena, world);
+    tickAuras(currentArena, world);
   }
   updateProjectiles(world, dt);
 }
@@ -930,6 +1061,7 @@ function heroCombat(hero, world, dt) {
     hero.pauseTimer = 1.0;
     hero.currentTargetId = null;
     logEvent(`Арена ${arena.index} зачищена`, 'kill');
+    world.onArenaCleared?.(arena);
     return;
   }
 
@@ -1009,7 +1141,7 @@ function updateEnemies(arena, world, dt) {
       }
       e.windingUpUntil = 0;
       e.windingUpStartedAt = 0;
-      e.attackCooldown = 1 / e.attackSpeed;
+      e.attackCooldown = 1 / getEnemyAttackSpeedNow(e, world);
       continue;
     }
 
@@ -1025,9 +1157,51 @@ function updateEnemies(arena, world, dt) {
       continue;
     }
 
+    // Лекарь — движется к центру масс живых melee-союзников (всё кроме ranged/healer),
+    // но не ближе SAFE к герою: если centroid внутри SAFE-зоны вокруг героя, целевая точка
+    // отодвигается от героя до SAFE по тому же лучу. Так лекарь не лезет в свалку.
+    if (e.kind === 'healer') {
+      const step = e.moveSpeed * dt;
+      const SAFE = 140;
+      let sumX = 0, sumY = 0, count = 0;
+      for (const a of enemies) {
+        if (a === e || !a.alive) continue;
+        if (a.kind === 'ranged' || a.kind === 'healer') continue;
+        sumX += a.x; sumY += a.y; count++;
+      }
+      if (count > 0) {
+        let cx = sumX / count;
+        let cy = sumY / count;
+        // Clamp: не лезть ближе SAFE к герою.
+        const dxH = cx - hero.x;
+        const dyH = cy - hero.y;
+        const dH = Math.hypot(dxH, dyH);
+        if (dH > 0.001 && dH < SAFE) {
+          const k = SAFE / dH;
+          cx = hero.x + dxH * k;
+          cy = hero.y + dyH * k;
+        }
+        const dxC = cx - e.x;
+        const dyC = cy - e.y;
+        const distC = Math.hypot(dxC, dyC);
+        if (distC > 4) {
+          const move = Math.min(step, distC);
+          e.x += (dxC / distC) * move;
+          e.y += (dyC / distC) * move;
+          e.state = ENEMY_STATE.CHASING;
+        } else {
+          e.state = ENEMY_STATE.IDLE;
+        }
+      } else {
+        e.state = ENEMY_STATE.IDLE;
+      }
+      clampInsideArena(e, arena);
+      continue;
+    }
+
     const isRanged = e.kind === 'ranged';
     const meleeDist = e.radius + hero.radius + 8;
-    const desiredDist = isRanged ? (e.attackRange || meleeDist) : meleeDist;
+    const R = isRanged ? (e.attackRange || meleeDist) : meleeDist;
     const dx = hero.x - e.x;
     const dy = hero.y - e.y;
     // Guard от dist=0 (например после slam-телепорта героя ровно на врага).
@@ -1042,26 +1216,36 @@ function updateEnemies(arena, world, dt) {
     } else {
       nx = dx / dist; ny = dy / dist;
     }
+    const step = e.moveSpeed * dt;
 
-    if (dist > desiredDist + 4) {
-      const step = e.moveSpeed * dt;
-      const move = Math.min(step, dist - desiredDist);
+    if (dist > R + 4) {
+      // Вне ренжа — подходим к игроку, тормозим ровно у границы R.
+      const move = Math.min(step, dist - R);
       e.x += nx * move;
       e.y += ny * move;
       e.state = ENEMY_STATE.CHASING;
-    } else if (!isRanged && dist < desiredDist - 4) {
-      // Только melee-враги отступают если герой подошёл слишком близко.
-      // Ranged стоит и стреляет в упор — намеренно (см. дизайн дальника).
-      const step = e.moveSpeed * dt * 0.5;
-      e.x -= nx * step;
-      e.y -= ny * step;
+    } else if (isRanged && e.kiteRetreat && dist < R * 0.5) {
+      // Снайпер (Подземка): игрок зашёл ближе R/2 — отступаем, стреляем на бегу.
+      e.x -= nx * step * 0.5;
+      e.y -= ny * step * 0.5;
+      e.state = ENEMY_STATE.ATTACKING;
+    } else if (!isRanged && dist < R - 4) {
+      // Melee и hero внутри тела (после slam-телепорта / push) — отталкиваемся,
+      // в этом тике не атакуем.
+      e.x -= nx * step * 0.5;
+      e.y -= ny * step * 0.5;
       e.state = ENEMY_STATE.CHASING;
     } else {
+      // В ренже — стоим и атакуем. Для ranged это коридор [R/2, R] (или [0, R] без kiteRetreat),
+      // для melee — точка возле тела.
       e.state = ENEMY_STATE.ATTACKING;
     }
 
     e.attackCooldown -= dt;
-    if (e.state === ENEMY_STATE.ATTACKING && e.attackCooldown <= 0) {
+    // Ranged стреляет в любой точке ренжа (включая retreat-ветку снайпера).
+    // Melee — только когда стоит в attack-стойке (state==ATTACKING, не push-back).
+    const canAttack = isRanged ? (dist <= R) : (e.state === ENEMY_STATE.ATTACKING);
+    if (canAttack && e.attackCooldown <= 0) {
       if (e.windupDuration && !e.windingUpUntil) {
         // Качок: первый тик в attacking → стартует замах. Дальше враг встаёт колом
         // (см. early-continue в начале цикла), сам слэм триггерится отдельной проверкой.
@@ -1074,7 +1258,7 @@ function updateEnemies(arena, world, dt) {
         } else {
           enemyAttackHero(e, hero, world);
         }
-        e.attackCooldown = 1 / e.attackSpeed;
+        e.attackCooldown = 1 / getEnemyAttackSpeedNow(e, world);
       }
     }
 

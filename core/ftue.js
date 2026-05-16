@@ -26,7 +26,7 @@ import { isBuildingUnlocked, buildingUnlockHint } from '../balance/hub.js';
 
 const state = {
   visitedScreens: {
-    arsenal: false, wardrobe: false, gym: false, house: false, bar: false,
+    arsenal: false, wardrobe: false, gym: false, house: false, bar: false, stickers: false,
   },
   actions: {
     skillCast:   false,  // первый ручной каст скилла в бою

@@ -11,7 +11,8 @@ import {
 } from '../balance/enemies.js';
 import {
   bossRarityWeights, EQUIPMENT_SLOTS, RARITIES,
-  PRIMARY_AFFIX_BASE, SECONDARY_AFFIXES, LOCATION_VALUE_SCALE,
+  PRIMARY_AFFIX_BASE, SECONDARY_AFFIXES,
+  getAffixValueMult, roundAffixValue,
 } from '../balance/equipment.js';
 import { TRAINER_TIERS } from '../balance/training.js';
 
@@ -53,7 +54,7 @@ function getStats(scenario) {
   const tmFn = mults ? (s) => mults[s] ?? 1 : undefined;
   const out = {};
   for (const f of fields) {
-    out[f] = computeEffectiveStat(f, scenario.levels, scenario.equippedItems, undefined, tmFn);
+    out[f] = computeEffectiveStat(f, scenario.levels, scenario.equippedItems, tmFn);
   }
   return out;
 }
@@ -297,11 +298,6 @@ function modalRarity(weightsObj) {
   return bestKey;
 }
 
-function roundForType(type, value) {
-  if (type === 'damage' || type === 'maxHp') return Math.round(value);
-  return Math.round(value * 1000) / 1000;
-}
-
 // Детерминированная (без рандома) версия generateItem — для прогрессионного снапшота.
 // Среднее значение secondary-аффиксов (variance = 1.0), типы выбираются по индексу.
 function generateAverageItem(slotId, rarityId, locationLevel = 1) {
@@ -309,9 +305,9 @@ function generateAverageItem(slotId, rarityId, locationLevel = 1) {
   const rarity = RARITIES[rarityId];
   if (!slot || !rarity) return null;
 
-  const valueMult = rarity.weight * Math.pow(LOCATION_VALUE_SCALE, Math.max(0, locationLevel - 1));
+  const valueMult = getAffixValueMult(rarity.weight, locationLevel);
   const primaryBase = PRIMARY_AFFIX_BASE[slot.primaryStat];
-  const primaryValue = roundForType(slot.primaryStat, primaryBase * valueMult);
+  const primaryValue = roundAffixValue(slot.primaryStat, primaryBase * valueMult);
 
   const usedTypes = new Set([slot.primaryStat]);
   const affixes = [];
@@ -322,7 +318,7 @@ function generateAverageItem(slotId, rarityId, locationLevel = 1) {
     usedTypes.add(pick.type);
     affixes.push({
       type: pick.type,
-      value: roundForType(pick.type, pick.base * valueMult),
+      value: roundAffixValue(pick.type, pick.base * valueMult),
     });
   }
 
@@ -336,12 +332,12 @@ function generateAverageItem(slotId, rarityId, locationLevel = 1) {
 }
 
 // Допущение о тире тренажёра у среднего игрока к моменту попытки локации.
-// Привязка к L: к ранним локациям — T1, к поздним — T5. Грубо матчит ожидаемое накопление монет.
+// Растянуто под 20 локаций (главы 1-2). T5 — к концу главы 1 / середине главы 2.
 function progressionTrainerTier(loc) {
-  if (loc <= 1) return 1;
-  if (loc <= 3) return 2;
-  if (loc <= 5) return 3;
-  if (loc <= 7) return 4;
+  if (loc <= 1)  return 1;
+  if (loc <= 4)  return 2;
+  if (loc <= 8)  return 3;
+  if (loc <= 13) return 4;
   return 5;
 }
 

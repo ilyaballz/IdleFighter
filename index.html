@@ -554,6 +554,18 @@
     letter-spacing: 0.5px;
     margin-left: 6px;
   }
+  .item-card .better-badge {
+    font-family: 'Bungee', sans-serif;
+    font-size: 10px;
+    color: #1a1a2e;
+    background: #5be35b;
+    border: 1px solid #5be35b;
+    border-radius: 4px;
+    padding: 1px 5px;
+    letter-spacing: 0.5px;
+    margin-left: 6px;
+    box-shadow: 0 0 6px rgba(91, 227, 91, 0.45);
+  }
   .item-card .upgrade-badge.max {
     color: var(--neon-yellow);
     border-color: var(--neon-yellow);
@@ -671,6 +683,17 @@
     flex-direction: column;
     gap: 6px;
   }
+  .trainer-card.locked {
+    opacity: 0.45;
+    filter: grayscale(0.7);
+    pointer-events: none;
+  }
+  .trainer-card.locked .lock-hint {
+    color: var(--neon-pink);
+    font-family: 'Bungee', sans-serif;
+    font-size: 10px;
+    letter-spacing: 1px;
+  }
   .trainer-card .stat-name {
     font-family: 'Bungee', sans-serif;
     color: var(--neon-pink);
@@ -731,6 +754,302 @@
     cursor: not-allowed;
   }
   .trainer-card button:not(:disabled):hover { background: #2e1c4a; }
+
+  /* Milestones (per-trainer прогресс к Golden Tap и далее) */
+  .trainer-card .milestone-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--dim);
+  }
+  .trainer-card .milestone-row .label { white-space: nowrap; }
+  .trainer-card .milestone-row .bar {
+    flex: 1;
+    height: 5px;
+    background: #2a1f3d;
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .trainer-card .milestone-row .fill {
+    height: 100%;
+    background: linear-gradient(to right, #ffae00, #ffd23f);
+    transition: width 0.2s ease;
+  }
+  .trainer-card .milestone-row .next-icon { font-size: 14px; opacity: 0.85; }
+  .trainer-card .milestone-row.maxed .label { color: var(--neon-yellow); }
+  .trainer-card .milestone-badges {
+    display: flex;
+    gap: 4px;
+    margin-top: -2px;
+  }
+  .trainer-card .milestone-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 6px;
+    font-size: 11px;
+    background: rgba(255, 210, 63, 0.12);
+    border: 1px solid rgba(255, 210, 63, 0.35);
+    color: #ffd23f;
+    border-radius: 8px;
+  }
+
+  /* Milestone toast — поверх tap-overlay при достижении milestone */
+  #tap-overlay .milestone {
+    color: #ffd23f;
+    font-size: 12px;
+    opacity: 0.85;
+  }
+  #milestone-toast {
+    position: absolute;
+    top: 30%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0.7);
+    background: linear-gradient(180deg, #2a1f3d 0%, #1a1226 100%);
+    border: 2px solid #ffd23f;
+    border-radius: 10px;
+    padding: 14px 22px;
+    color: #ffd23f;
+    font-family: 'Bungee', sans-serif;
+    font-size: 16px;
+    text-align: center;
+    box-shadow: 0 0 24px rgba(255, 210, 63, 0.6);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.25s ease, transform 0.35s cubic-bezier(0.4, 1.4, 0.55, 1);
+    z-index: 30;
+    max-width: 80%;
+  }
+  #milestone-toast.show {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  #milestone-toast .icon { font-size: 28px; display: block; margin-bottom: 4px; }
+  #milestone-toast .label { color: #fff8c0; }
+  #milestone-toast .desc {
+    font-family: 'VT323', monospace;
+    font-size: 14px;
+    color: var(--text);
+    margin-top: 6px;
+    line-height: 1.3;
+  }
+
+  /* Стикеры — коллекция */
+  #stickers-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .sticker-set {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    padding: 10px;
+  }
+  .sticker-set.complete {
+    border-color: var(--neon-yellow);
+    box-shadow: 0 0 10px rgba(255, 210, 63, 0.25);
+  }
+  .sticker-set-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .sticker-set-head .icon { font-size: 22px; }
+  .sticker-set-head .name {
+    font-family: 'Bungee', sans-serif;
+    color: var(--neon-pink);
+    font-size: 13px;
+    letter-spacing: 1px;
+    flex: 1;
+  }
+  .sticker-set.complete .name { color: var(--neon-yellow); }
+  .sticker-set-head .progress {
+    color: var(--dim);
+    font-family: 'VT323', monospace;
+    font-size: 13px;
+  }
+  .sticker-set-bonus {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    color: var(--dim);
+    font-family: 'Bungee', sans-serif;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+    padding: 5px 8px;
+    border-radius: 5px;
+    background: #15101e;
+    border-left: 2px solid var(--panel-border);
+  }
+  .sticker-set-bonus .set-bonus-label { color: var(--dim); }
+  .sticker-set.complete .sticker-set-bonus {
+    border-left-color: var(--neon-yellow);
+  }
+  .sticker-set.complete .sticker-set-bonus .set-bonus-label { color: var(--neon-yellow); }
+  .sticker-source {
+    color: var(--dim);
+    font-family: 'VT323', monospace;
+    font-size: 11px;
+    margin-bottom: 8px;
+    padding-left: 2px;
+    letter-spacing: 0.3px;
+  }
+  .sticker-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 6px;
+  }
+  .sticker-card {
+    background: #0c0815;
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    padding: 8px 8px 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    user-select: none;
+  }
+  .sticker-card.unlocked { background: #1a1226; border-color: #3a2a55; }
+  .sticker-card-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 22px;
+  }
+  .sticker-card .ic {
+    font-size: 20px;
+    line-height: 1;
+    filter: grayscale(1) brightness(0.3);
+  }
+  .sticker-card.unlocked .ic { filter: none; }
+  .sticker-card .nm {
+    font-family: 'VT323', monospace;
+    font-size: 13px;
+    color: var(--dim);
+    line-height: 1.1;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .sticker-card.unlocked .nm { color: var(--text); }
+  .sticker-card .affix-line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    font-size: 12px;
+  }
+  .sticker-card .affix-pill {
+    color: var(--neon-cyan);
+    font-family: 'Bungee', sans-serif;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+  .sticker-card .affix-pill .pill-icon {
+    margin-right: 3px;
+    font-family: initial;
+  }
+  .sticker-card .affix-pill .pill-label {
+    margin-left: 3px;
+    color: var(--dim);
+    font-family: 'VT323', monospace;
+    font-size: 10px;
+    letter-spacing: 0;
+  }
+  .sticker-set-bonus .affix-line {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+  }
+  .sticker-set-bonus .affix-pill {
+    color: var(--neon-cyan);
+    font-family: 'Bungee', sans-serif;
+    font-size: 12px;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+  .sticker-set-bonus .affix-pill .pill-icon { margin-right: 3px; font-family: initial; }
+  .sticker-set-bonus .affix-pill .pill-label {
+    margin-left: 3px;
+    color: var(--dim);
+    font-family: 'VT323', monospace;
+    font-size: 10px;
+    letter-spacing: 0;
+  }
+  .sticker-set.complete .sticker-set-bonus .affix-pill { color: var(--neon-yellow); }
+  .sticker-locked-bonus {
+    color: var(--dim);
+    font-family: 'VT323', monospace;
+    font-size: 13px;
+    letter-spacing: 1px;
+  }
+  .stickers-total {
+    text-align: center;
+    color: var(--neon-cyan);
+    font-family: 'Bungee', sans-serif;
+    font-size: 14px;
+    letter-spacing: 1px;
+  }
+
+  /* Toast при выпадении стикера — наследует структуру milestone-toast */
+  #sticker-toast {
+    position: absolute;
+    top: 30%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0.7);
+    background: linear-gradient(180deg, #2a1f3d 0%, #1a1226 100%);
+    border: 2px solid var(--neon-pink);
+    border-radius: 10px;
+    padding: 14px 22px;
+    color: var(--neon-pink);
+    font-family: 'Bungee', sans-serif;
+    font-size: 14px;
+    text-align: center;
+    box-shadow: 0 0 24px rgba(255, 62, 165, 0.5);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.25s ease, transform 0.35s cubic-bezier(0.4, 1.4, 0.55, 1);
+    z-index: 30;
+    max-width: 80%;
+  }
+  #sticker-toast.show {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  #sticker-toast .icon { font-size: 40px; display: block; margin-bottom: 4px; }
+  #sticker-toast .label { color: #fff8c0; font-size: 12px; letter-spacing: 1px; }
+  #sticker-toast .name {
+    color: var(--text);
+    font-family: 'VT323', monospace;
+    font-size: 16px;
+    margin-top: 4px;
+  }
+  #sticker-toast .bonus {
+    margin-top: 6px;
+    display: inline-flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 4px 10px;
+  }
+  #sticker-toast .affix-pill {
+    color: var(--neon-cyan);
+    font-family: 'Bungee', sans-serif;
+    font-size: 13px;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+  #sticker-toast .affix-pill .pill-icon { margin-right: 3px; font-family: initial; }
+  #sticker-toast .affix-pill .pill-label {
+    margin-left: 3px;
+    color: var(--dim);
+    font-family: 'VT323', monospace;
+    font-size: 11px;
+    letter-spacing: 0;
+  }
 
   /* Loadout in hub */
   #hub-scene h2 {
@@ -860,6 +1179,37 @@
   @keyframes gacha-win-cyan {
     0%, 100% { transform: scale(1.2); box-shadow: 0 0 22px var(--neon-cyan); }
     50%      { transform: scale(1.4); box-shadow: 0 0 36px var(--neon-cyan), 0 0 60px rgba(79, 214, 255, 0.6); }
+  }
+  /* Бейдж «можно прокачать» в углу иконки скилла в гаче. */
+  .gacha-icon .upgrade-ready {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--neon-yellow);
+    color: #1a1a2e;
+    font-size: 11px;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 3;
+    animation: upgrade-ready-pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes upgrade-ready-pulse {
+    0%, 100% { transform: scale(1);    box-shadow: 0 0 4px var(--neon-yellow); }
+    50%      { transform: scale(1.18); box-shadow: 0 0 12px var(--neon-yellow); }
+  }
+  /* FX на левелап скилла: фон карточки кратко мигает жёлтым. */
+  .skill-card { position: relative; }
+  .skill-card.levelup-fx {
+    animation: skill-levelup-flash 0.55s ease-out both;
+  }
+  @keyframes skill-levelup-flash {
+    0%   { background: #3a2d10; box-shadow: inset 0 0 18px rgba(255, 210, 63, 0.55); }
+    100% { background: var(--panel); box-shadow: inset 0 0 0 rgba(255, 210, 63, 0); }
   }
   #gacha-spin {
     padding: 10px;
@@ -1166,103 +1516,281 @@
     border-color: var(--dim);
     color: var(--dim);
   }
-  #bar-info .pending-banner {
-    background: #2a1f3d;
-    border: 2px solid var(--neon-yellow);
-    color: var(--neon-yellow);
-    border-radius: 6px;
-    padding: 10px;
-    font-family: 'Bungee', sans-serif;
-    font-size: 13px;
-    text-align: center;
-    cursor: pointer;
-    letter-spacing: 1px;
-    box-shadow: 0 0 10px rgba(255, 210, 63, 0.4);
-  }
-  #bar-info .pending-banner:hover { background: #3a2a55; }
-  #bar-perks-owned {
-    background: var(--panel);
-    border: 1px solid var(--panel-border);
-    border-radius: 8px;
-    padding: 10px 12px;
+  /* Карточка текущего противника в баре */
+  .bar-opp-card {
+    background: #15101e;
+    border: 2px solid var(--neon-pink);
+    border-radius: 10px;
+    padding: 12px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 10px;
+    box-shadow: 0 0 12px rgba(255, 62, 165, 0.25);
   }
-  #bar-perks-owned h3 {
-    margin: 0;
+  .bar-opp-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .bar-opp-icon {
+    font-size: 42px;
+    line-height: 1;
+    filter: drop-shadow(0 0 8px var(--neon-pink));
+  }
+  .bar-opp-id { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+  .bar-opp-name {
     font-family: 'Bungee', sans-serif;
-    color: var(--neon-cyan);
+    color: var(--neon-pink);
+    font-size: 18px;
+    letter-spacing: 1.5px;
+  }
+  .bar-opp-lvl {
+    color: var(--dim);
+    font-family: 'VT323', monospace;
+    font-size: 14px;
+  }
+  .bar-opp-progress { text-align: right; }
+  .bar-opp-progress-label {
+    color: var(--dim);
+    font-family: 'VT323', monospace;
+    font-size: 11px;
+    letter-spacing: 1px;
+  }
+  .bar-opp-progress-dots {
+    display: inline-flex;
+    gap: 4px;
+    margin-top: 2px;
+  }
+  .bar-win-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #0c0815;
+    border: 2px solid var(--panel-border);
+  }
+  .bar-win-dot.on {
+    background: var(--neon-yellow);
+    border-color: var(--neon-yellow);
+    box-shadow: 0 0 6px rgba(255, 210, 63, 0.6);
+  }
+  .bar-opp-stats {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    font-family: 'Bungee', sans-serif;
+    font-size: 12px;
+    color: var(--text);
+    letter-spacing: 0.5px;
+  }
+  .bar-opp-stats .bar-stat .ic { color: var(--neon-cyan); margin-right: 4px; }
+  .bar-opp-traits {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+  }
+  .bar-opp-traits.empty { color: var(--dim); font-family: 'VT323', monospace; font-size: 12px; }
+  .bar-trait {
+    color: var(--neon-yellow);
+    font-family: 'VT323', monospace;
+    font-size: 13px;
+    padding: 2px 6px;
+    background: #2e2510;
+    border: 1px solid #5a4f1f;
+    border-radius: 4px;
+  }
+  .bar-opp-reward {
+    display: flex;
+    gap: 6px;
+    align-items: baseline;
+    padding-top: 6px;
+    border-top: 1px solid var(--panel-border);
+  }
+  .bar-opp-reward .lbl {
+    color: var(--dim);
+    font-family: 'VT323', monospace;
     font-size: 12px;
     letter-spacing: 1px;
   }
-  .perk-line {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 14px;
-    color: var(--text);
-  }
-  .perk-line .icon { font-size: 20px; }
-  .perk-line .stack {
-    color: var(--neon-yellow);
+  .bar-opp-reward .val {
+    color: var(--neon-cyan);
     font-family: 'Bungee', sans-serif;
-    font-size: 12px;
+    font-size: 13px;
+    letter-spacing: 0.5px;
   }
-  .perk-line .desc { color: var(--dim); font-size: 12px; margin-left: auto; }
+  .bar-next-teaser {
+    text-align: center;
+    color: var(--dim);
+    font-family: 'VT323', monospace;
+    font-size: 13px;
+    margin-top: -4px;
+  }
 
-  /* Perk choice overlay */
-  #perk-choice-overlay {
+  /* Скретч-карта overlay */
+  #scratch-overlay {
     position: absolute;
     inset: 0;
-    background: rgba(8, 5, 14, 0.97);
+    background: rgba(8, 5, 14, 0.94);
     z-index: 40;
     display: none;
     align-items: center;
     justify-content: center;
-    flex-direction: column;
     padding: 16px;
-    gap: 16px;
   }
-  #perk-choice-overlay.show { display: flex; }
-  #perk-choice-overlay h1 {
-    font-family: 'Bungee', sans-serif;
-    color: var(--neon-yellow);
-    font-size: 24px;
-    margin: 0;
-    text-shadow: 0 0 20px rgba(255, 210, 63, 0.6);
-    letter-spacing: 2px;
-  }
-  #perk-choice-cards {
+  #scratch-overlay.show { display: flex; }
+  .scratch-panel {
+    background: linear-gradient(180deg, #2a1f3d 0%, #1a1226 100%);
+    border: 2px solid var(--neon-yellow);
+    border-radius: 12px;
+    padding: 18px 16px 14px;
+    width: 100%;
+    max-width: 360px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    width: 100%;
-    max-width: 340px;
+    gap: 14px;
+    box-shadow: 0 0 24px rgba(255, 210, 63, 0.4);
   }
-  .perk-card {
-    background: var(--panel);
-    border: 2px solid var(--neon-cyan);
-    border-radius: 10px;
-    padding: 14px;
-    color: var(--text);
-    cursor: pointer;
-    text-align: center;
-    transition: transform 0.06s, box-shadow 0.1s;
-  }
-  .perk-card:hover {
-    box-shadow: 0 0 14px rgba(79, 214, 255, 0.5);
-  }
-  .perk-card:active { transform: scale(0.97); }
-  .perk-card .icon { font-size: 32px; margin-bottom: 4px; }
-  .perk-card .name {
+  .scratch-head { text-align: center; }
+  .scratch-title {
     font-family: 'Bungee', sans-serif;
-    color: var(--neon-cyan);
-    font-size: 15px;
-    letter-spacing: 1px;
+    color: var(--neon-yellow);
+    font-size: 18px;
+    letter-spacing: 2px;
+    text-shadow: 0 0 10px rgba(255, 210, 63, 0.5);
   }
-  .perk-card .desc { color: var(--text); font-size: 14px; margin-top: 4px; }
-  .perk-card .stack-note { color: var(--neon-yellow); font-size: 12px; margin-top: 4px; }
+  .scratch-from {
+    color: var(--text);
+    font-family: 'VT323', monospace;
+    font-size: 16px;
+    margin-top: 4px;
+  }
+  .scratch-cells {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+  .scratch-cell {
+    position: relative;
+    aspect-ratio: 1 / 1;
+    background: #0c0815;
+    border: 2px solid var(--panel-border);
+    border-radius: 8px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .scratch-cell .sym {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 38px;
+    color: var(--neon-yellow);
+    text-shadow: 0 0 8px rgba(255, 210, 63, 0.5);
+  }
+  .scratch-cell .cover {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    background: repeating-linear-gradient(45deg, #3a2a55 0 6px, #2a1f3d 6px 12px);
+    border-radius: 6px;
+    transition: opacity 0.25s ease, transform 0.3s ease;
+  }
+  .scratch-cell.revealed .cover {
+    opacity: 0;
+    transform: scale(0.7) rotate(8deg);
+  }
+  .scratch-cell.revealed {
+    border-color: var(--neon-cyan);
+    box-shadow: 0 0 12px rgba(79, 214, 255, 0.35);
+  }
+  /* Промах — приглушённый символ, без FX */
+  .scratch-cell.miss .sym { color: var(--dim); text-shadow: none; font-size: 32px; }
+  /* Win-FX: при раскрытии target-ячейки — punch на иконке + расходящийся круг */
+  .scratch-cell.revealed:not(.miss) {
+    border-color: var(--neon-yellow);
+    box-shadow: 0 0 16px rgba(255, 210, 63, 0.55);
+  }
+  .scratch-cell.revealed:not(.miss) .sym {
+    animation: scratch-punch 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  .scratch-cell.revealed:not(.miss)::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    border-radius: 6px;
+    border: 3px solid var(--neon-yellow);
+    pointer-events: none;
+    animation: scratch-ring 0.55s ease-out both;
+  }
+  @keyframes scratch-punch {
+    0%   { transform: scale(0.4); filter: brightness(2); }
+    55%  { transform: scale(1.25); filter: brightness(1.5); }
+    100% { transform: scale(1);    filter: brightness(1); }
+  }
+  @keyframes scratch-ring {
+    0%   { opacity: 0.9; transform: scale(1);   }
+    100% { opacity: 0;   transform: scale(1.6); }
+  }
+  .scratch-reveal-all {
+    padding: 8px;
+    background: transparent;
+    border: 1.5px dashed var(--neon-cyan);
+    color: var(--neon-cyan);
+    font-family: 'Bungee', sans-serif;
+    font-size: 11px;
+    letter-spacing: 1px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .scratch-reveal-all:hover { background: #16263a; }
+  .scratch-reward {
+    background: #15101e;
+    border-radius: 8px;
+    padding: 10px 12px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .scratch-reward.hidden { display: none; }
+  .scratch-tier {
+    font-family: 'Bungee', sans-serif;
+    color: var(--neon-pink);
+    font-size: 13px;
+    letter-spacing: 1.5px;
+  }
+  .scratch-reward-label {
+    color: var(--text);
+    font-family: 'VT323', monospace;
+    font-size: 18px;
+    letter-spacing: 0.5px;
+  }
+  .scratch-bonus-sticker {
+    color: var(--neon-cyan);
+    font-family: 'VT323', monospace;
+    font-size: 14px;
+  }
+  .scratch-claim {
+    padding: 14px;
+    background: var(--panel);
+    border: 2px solid var(--neon-yellow);
+    color: var(--neon-yellow);
+    font-family: 'Bungee', sans-serif;
+    font-size: 16px;
+    letter-spacing: 2px;
+    border-radius: 8px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .scratch-claim:hover:not(:disabled) { background: #2a2510; }
+  .scratch-claim:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    border-color: var(--dim);
+    color: var(--dim);
+  }
 
   /* Tap-timing overlay */
   #tap-overlay {
@@ -1359,6 +1887,27 @@
   #tap-bar .zone.red    { background: rgba(255, 62, 62, 0.45); }
   #tap-bar .zone.yellow { background: rgba(255, 210, 63, 0.45); }
   #tap-bar .zone.green  { background: rgba(91, 227, 91, 0.55); }
+  /* Golden zone — пульсирующая, поверх всех остальных зон.
+     Спавнится по шансу из milestones (per-trainer) × Кофеварка. Попадание = бесплатный успешный тап. */
+  #tap-bar .zone.gold {
+    background: linear-gradient(180deg, #ffe35a 0%, #ffae00 100%);
+    box-shadow: 0 0 12px #ffd23f, inset 0 0 6px #fff8c0;
+    border: 1px solid #fff8c0;
+    animation: gold-pulse 0.6s ease-in-out infinite alternate;
+  }
+  @keyframes gold-pulse {
+    from { filter: brightness(1);   transform: scaleY(1.0); }
+    to   { filter: brightness(1.3); transform: scaleY(1.1); }
+  }
+  /* Финальные ~700мс жизни — быстрый blink вместо плавного pulse,
+     чтобы игрок понял: «скоро улетит». */
+  #tap-bar .zone.gold.ending {
+    animation: gold-blink 0.18s steps(2, end) infinite;
+  }
+  @keyframes gold-blink {
+    0%   { opacity: 1;   filter: brightness(1.4); }
+    100% { opacity: 0.25; filter: brightness(0.7); }
+  }
   #tap-bar .cursor {
     position: absolute;
     top: -3px; bottom: -3px;
@@ -1376,6 +1925,7 @@
   #tap-feedback.green  { color: #5be35b; }
   #tap-feedback.yellow { color: var(--neon-yellow); }
   #tap-feedback.red    { color: #ff5a5a; }
+  #tap-feedback.golden { color: #ffd23f; text-shadow: 0 0 8px #ffd23f, 0 0 14px #ffae00; }
   #tap-btn {
     flex: 1;
     margin-top: 10px;
@@ -1717,13 +2267,12 @@
         <span class="title">🥋 АРСЕНАЛ</span>
       </div>
       <div class="sub-body">
-        <h2 class="section">ЛОАДАУТ (3 СЛОТА)</h2>
-        <div class="loadout-slots" id="loadout-slots"></div>
-        <h2 class="section">🎰 ГАЧА</h2>
+        <h2 class="section" style="display:none">ЛОАДАУТ (3 СЛОТА)</h2>
+        <div class="loadout-slots" id="loadout-slots" style="display:none"></div>
         <div id="gacha-block">
           <div class="gacha-header">
-            <span>🎰 Жетоны (с боссов):</span>
-            <span class="tokens" id="gacha-tokens">0</span>
+            <span>🎰 Жетоны: <span class="tokens" id="gacha-tokens">0</span></span>
+            <span>🥋 Слоты: <span id="loadout-slot-counter">0/3</span></span>
           </div>
           <div id="gacha-strip"></div>
           <div id="gacha-result"></div>
@@ -1734,13 +2283,28 @@
       <button class="back-btn-large" data-back>← НАЗАД</button>
     </div>
 
-    <!-- Бар (спарринги с боссом) -->
+    <!-- Бар (серия скретч-боёв) -->
     <div id="hub-bar" class="hub-screen">
       <div class="sub-header">
         <span class="title">🍻 БАР</span>
       </div>
       <div class="sub-body">
         <div id="bar-info"></div>
+      </div>
+      <button class="back-btn-large" data-back>← НАЗАД</button>
+    </div>
+
+    <!-- Скретч-карта (overlay внутри хаба) -->
+    <div id="scratch-overlay"></div>
+
+    <!-- Стикеры (коллекция наклеек) -->
+    <div id="hub-stickers" class="hub-screen">
+      <div class="sub-header">
+        <span class="title">🏷 СТИКЕРЫ</span>
+      </div>
+      <div class="sub-body">
+        <div class="stickers-total" id="stickers-total">0 / 25</div>
+        <div id="stickers-grid"></div>
       </div>
       <button class="back-btn-large" data-back>← НАЗАД</button>
     </div>
@@ -1759,12 +2323,6 @@
     </div>
   </div>
 
-  <!-- Оверлей выбора перка (после каждой 5-й медали) -->
-  <div id="perk-choice-overlay">
-    <h1 id="perk-choice-title">ВЫБЕРИ ПЕРК</h1>
-    <div id="perk-choice-cards"></div>
-  </div>
-
   <!-- Тап-тайминг -->
   <div id="tap-overlay">
     <div class="header">
@@ -1774,6 +2332,7 @@
       <span class="energy" id="tap-energy">⚡ 100/100</span>
       <span class="counter" id="tap-counter">💪 0%</span>
       <span style="color:var(--dim);" id="tap-tier">Тир 1 — 1 XP</span>
+      <span class="milestone" id="tap-milestone"></span>
     </div>
     <div class="tap-xp-row">
       <div class="xp-text">
@@ -1787,13 +2346,17 @@
         <div class="zone red"    id="zone-r" style="left:0%; width:100%;"></div>
         <div class="zone yellow" id="zone-y" style="left:5%; width:90%;"></div>
         <div class="zone green"  id="zone-g" style="left:20%; width:60%;"></div>
+        <div class="zone gold"   id="zone-gold" style="left:0%; width:0%; display:none;"></div>
         <div class="cursor"      id="tap-cursor" style="left:0%;"></div>
       </div>
     </div>
     <div id="tap-feedback"></div>
     <button id="tap-btn">ТАП</button>
     <button id="tap-exit" class="back-btn-large" data-tap-exit>← НАЗАД</button>
+    <div id="milestone-toast"></div>
   </div>
+
+  <div id="sticker-toast"></div>
 </div>
 
 <div id="devpanel">
@@ -1812,6 +2375,8 @@
   <button id="dev-shards">+10 шардов всем скиллам</button>
   <button id="dev-gacha-token">+1 жетон гачи</button>
   <button id="dev-epic-item">+1 случайный эпик</button>
+  <button id="dev-sticker">+1 случайная наклейка</button>
+  <button id="dev-bar-ticket">+1 билет бара</button>
   <button id="dev-sim">📊 Симулятор боя</button>
   <button id="dev-stat-levels">+10 уровней статам</button>
   <button id="dev-reset-progress">Сбросить прогрессию</button>

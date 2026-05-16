@@ -28,7 +28,7 @@ export const SKILLS = {
     baseDamageMultiplier: 1.0,
     // Bleed как бинарный тег: цель кровит / не кровит.
     // duration > baseCooldown → DoT непрерывно перекрывается при ритм-касте.
-    dot: { damagePctPerSec: 0.25, durationSec: 7.0 },
+    dot: { damagePctPerSec: 0.40, durationSec: 7.0 },
     levelBonusPerLvl: 0.15,
     cdRateBonusPerLvl: 0.10,
   },
@@ -54,11 +54,11 @@ export const SKILLS = {
     baseCooldown: 8.0,
     targetType: 'aoe_around_self',
     aoeRadius: 90,
-    baseDamageMultiplier: 1.8,
+    baseDamageMultiplier: 1.0,
     knockback: 30,
     // Синергия с knockdown: лежачие враги получают +60% урона (per-target).
     bonusVsKnockedDownPct: 0.6,
-    levelBonusPerLvl: 0.15,
+    levelBonusPerLvl: 0.25,
     cdRateBonusPerLvl: 0.10,
   },
   slam: {
@@ -67,7 +67,7 @@ export const SKILLS = {
     baseCooldown: 15.0,
     targetType: 'aoe_landing',
     aoeRadius: 130,
-    baseDamageMultiplier: 4.0,
+    baseDamageMultiplier: 2.0,
     castDelaySec: 0.8,
     knockback: 50,
     // Синергия с knockdown:
@@ -80,7 +80,7 @@ export const SKILLS = {
     prefersMarkedTarget: true,
     // Rage synergy: каст 0.8с → 0.4с (молниеносная реакция под Яростью).
     castDelayMultIfRage: 0.5,
-    levelBonusPerLvl: 0.15,
+    levelBonusPerLvl: 0.25,
     cdRateBonusPerLvl: 0.10,
   },
   rage: {
@@ -133,7 +133,7 @@ export const SKILLS = {
     baseCooldown: 12.0,
     targetType: 'aoe_around_self',
     aoeRadius: 80,
-    baseDamageMultiplier: 1.5,
+    baseDamageMultiplier: 0.7,
     lifestealPct: 0.5,              // 50% от нанесённого урона возвращается в HP
     // Синергия с bleed: лайфстил с кровящих целей умножается (per-enemy).
     bleedLifestealMultiplier: 2.0,
@@ -141,7 +141,7 @@ export const SKILLS = {
     lifestealMultiplierIfRage: 1.5,
     minHealPct: 0.10,               // гарантированный минимум — 10% maxHp за каст (на пустую толпу)
     knockback: 25,
-    levelBonusPerLvl: 0.15,
+    levelBonusPerLvl: 0.25,
     cdRateBonusPerLvl: 0.10,
   },
   combo: {
@@ -169,7 +169,7 @@ export const SKILLS = {
     baseCooldown: 9.0,
     targetType: 'aoe_around_self',
     aoeRadius: 100,
-    baseDamageMultiplier: 1.0,
+    baseDamageMultiplier: 0.5,
     knockdownSec: 1.5,
     knockback: 20,
     levelBonusPerLvl: 0.15,
@@ -197,9 +197,12 @@ export const SKILLS = {
 export const STARTING_SKILLS = ['hook'];
 
 // Гарантированный порядок первых гача-выпадений — пока есть незаоткрытые из этого списка,
-// они выпадают строго по порядку. Используется чтобы дать игроку базовый toolkit (AoE + heal)
-// в первые 2 крутки. Дальше — чистый рандом из оставшихся закрытых.
-export const GUARANTEED_UNLOCKS = ['roundkick', 'breath'];
+// они выпадают строго по порядку. Базовый toolkit для онбординга врагов:
+//   roundkick  — AOE против swarm (вводится на L3)
+//   breath     — хил, страховка под пресс
+//   dash       — мобильность/линия урона против ranged_pack (вводится на L5)
+// Дальше — чистый рандом из оставшихся закрытых.
+export const GUARANTEED_UNLOCKS = ['roundkick', 'breath', 'dash'];
 
 // Гача
 export const GACHA = {

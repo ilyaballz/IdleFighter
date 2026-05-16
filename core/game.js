@@ -3,9 +3,13 @@
 import { ARENA } from '../balance/visuals.js';
 import { SKILLS } from '../balance/skills.js';
 import { buildLocation, buildBarLocation } from '../battle/arena.js';
+import { arenaNutDrop, arenaEnergyDrop, resetArenaPity } from '../balance/enemies.js';
 import {
-  barState, recoverTickets, spendTicket, recordBarWin,
+  barState, recoverTickets, spendTicket, recordBarWin, getCurrentOpponent,
 } from './bar_state.js';
+import {
+  buildBarReward, rollScratchTier, SCRATCH_STICKER_BONUS_CHANCE,
+} from '../balance/bar.js';
 import {
   createHero, updateBattle, HERO_STATE, activateSkill,
 } from '../battle/battle.js';
@@ -18,7 +22,7 @@ import {
   showHubScene, renderHub, bindHubActions, bindCoinsAccessor, bindNutsAccessor, bindEssenceAccessor,
   showTapOverlay, hideTapOverlay,
   renderTapStatic, renderTapDynamic, flashTapFeedback, bindTapButton,
-  spawnXpFly, startGachaSpin,
+  spawnXpFly, startGachaSpin, showStickerToast, showScratchCard, showHubScreen,
 } from '../hub/ui.js';
 import {
   hubState, recoverEnergy, recoverGreenZones,
@@ -29,12 +33,16 @@ import {
 } from '../hub/state.js';
 import { resetHeroForNewRun, addStatXp, heroState } from './stats_layer.js';
 import * as ftue from './ftue.js';
-import { loadoutState, addGachaToken, rollShardDropForEnemy } from './loadout.js';
+import { loadoutState, addGachaToken, addShard, rollShardDropForEnemy } from './loadout.js';
 import {
   addItem, rollDropForEnemy, findItem, isItemEquipped,
   getItemUpgradeCost, getItemSalvageValue, upgradeItem, removeItem,
+  generateItem,
 } from './inventory.js';
 import { RARITIES, EQUIPMENT_SLOTS } from '../balance/equipment.js';
+import { isBuildingUnlocked } from '../balance/hub.js';
+import { tryDropStickerForKill, getStickerBonus, dropRandomMissingSticker } from './stickers_state.js';
+import { STICKERS } from '../balance/stickers.js';
 import { updateFx, resetFx } from './fx.js';
 
 // Связываем hub/state с heroState через DI — нужно для cap-проверок без циклического импорта.
@@ -64,7 +72,9 @@ const world = {
       logEvent(`БАР: ${enemy.name} повержен!`, 'kill');
       return;
     }
-    world.coins += enemy.coinDrop;
+    const coinMult = 1 + getStickerBonus('coinPct');
+    const coinReward = Math.round(enemy.coinDrop * coinMult);
+    world.coins += coinReward;
     if (enemy.kind === 'boss') {
       const reward = enemy.energyReward || 0;
       if (reward > 0) {
@@ -72,12 +82,12 @@ const world = {
       }
       const nuts = enemy.nutDrop || 0;
       if (nuts > 0) world.nuts += nuts;
-      const parts = [`+${enemy.coinDrop}💰`];
+      const parts = [`+${coinReward}💰`];
       if (nuts > 0) parts.push(`+${nuts}🔩`);
       if (reward > 0) parts.push(`+${reward}⚡`);
       logEvent(`БОСС повержен! ${parts.join(' ')}`, 'kill');
     } else {
-      logEvent(`${enemy.name} убит (+${enemy.coinDrop}💰)`, 'kill');
+      logEvent(`${enemy.name} убит (+${coinReward}💰)`, 'kill');
     }
     const shard = rollShardDropForEnemy(enemy);
     if (shard) logEvent(`+1 шард ${shard.name}`, 'kill');
@@ -86,8 +96,33 @@ const world = {
       addItem(item);
       logEvent(`Дроп: [${RARITIES[item.rarity].name}] ${EQUIPMENT_SLOTS[item.slot].name}`, 'kill');
     }
+    // Стикеры дропают только после разлочки самой фичи — иначе игрок видит toast'ы
+    // не понимая что это, и сейв уходит в неконсистентное состояние (есть стикеры до открытия Бумбокса).
+    if (isBuildingUnlocked('stickers', hubState.currentLocationIndex)) {
+      const stickerId = tryDropStickerForKill(enemy);
+      if (stickerId) {
+        const s = STICKERS[stickerId];
+        logEvent(`📼 НАКЛЕЙКА: ${s.icon} ${s.name}!`, 'crit');
+        showStickerToast(stickerId);
+      }
+    }
   },
   onLocationCleared: () => onLocationVictory(),
+  // Per-arena drops (60/40 сплит босс/арены). Бар не дропает гайки и энергию.
+  onArenaCleared: (arena) => {
+    if (world.location?.kind === 'bar') return;
+    const locIdx = world.location?.locationIndex || 1;
+    const nut = arenaNutDrop(locIdx, arena.index);
+    if (nut > 0) {
+      world.nuts += nut;
+      logEvent(`+${nut}🔩 за арену`, 'kill');
+    }
+    const energy = arenaEnergyDrop(locIdx, arena.index);
+    if (energy > 0) {
+      hubState.energy = Math.min(getEffectiveEnergyMax(), hubState.energy + energy);
+      logEvent(`+${energy}⚡ за арену`, 'kill');
+    }
+  },
 };
 
 bindCoinsAccessor(() => world.coins);
@@ -129,9 +164,11 @@ function enterBarFight() {
 }
 
 function startBarFight() {
-  // Уровень бар-босса = число побед + 1. С каждой победой следующий босс становится сильнее.
-  const bossLevel = barState.medals + 1;
-  world.location = buildBarLocation(bossLevel);
+  // barLevel считается "Это мой N-й бой подряд" — после первой победы medals=1 → следующий бой lvl=2.
+  // Награда и скейл считаются по lvl того боя, в котором мы сейчас находимся.
+  const opponent = getCurrentOpponent();
+  const barLevel = barState.medals + 1;
+  world.location = buildBarLocation(opponent, barLevel);
   world.locationClearedFired = false;
   world.projectiles = [];
   resetHeroForNewRun();
@@ -149,10 +186,13 @@ function startBarFight() {
   const rect = canvas.getBoundingClientRect();
   world.camera.x = world.hero.x - rect.width / 2;
   world.camera.y = world.hero.y - rect.height / 2;
-  logEvent(`=== Спарринг в баре (босс ур. ${bossLevel}) ===`);
+  logEvent(`=== Бар: ${opponent.icon} ${opponent.name} (ур. ${barLevel}) ===`);
 }
 
 function startLocation(locationIndex) {
+  // Pity спавна спец-арен сбрасывается с каждой новой локацией — иначе игрок начинал бы
+  // с накопленным «pity-долгом» от предыдущей и мог получить пак на первой же арене.
+  resetArenaPity();
   world.location = buildLocation(locationIndex);
   world.locationClearedFired = false;
   world.projectiles = [];
@@ -191,10 +231,94 @@ function onLocationVictory() {
 }
 
 function onBarVictory() {
-  recordBarWin();
-  addGachaToken(1);
-  logEvent(`БАР: победа! +1 жетон гачи (всего побед: ${barState.medals})`, 'crit');
-  showVictory(`Спарринг выигран!\n+1 🎰 жетон гачи (крутить в арсенале)`);
+  // barLevel в наградах = тот же лвл, что был в бою (до инкремента medals).
+  const opponent = getCurrentOpponent();
+  const barLevel = barState.medals + 1;
+  const tier = rollScratchTier();
+  const reward = buildBarReward(opponent, barLevel, tier);
+  // 10% доп. ролл стикера только на 2/3-match. На 1-match — никогда.
+  let bonusStickerId = null;
+  if (tier >= 2 && Math.random() < SCRATCH_STICKER_BONUS_CHANCE) {
+    bonusStickerId = dropRandomMissingSticker();
+  }
+  logEvent(`БАР: ${opponent.name} повержен! Скретч tier ${tier}.`, 'crit');
+  // Переходим в хаб → секция бара → открываем скретч-карту. Награда начислится только на ЗАБРАТЬ.
+  enterHub();
+  showHubScreen('bar');
+  showScratchCard({
+    opponent, tier, reward, bonusStickerId,
+    onClaim: () => applyBarReward(reward, bonusStickerId),
+  });
+}
+
+// Начисление награды + advance прогресса. Вызывается из callback'а скретч-карты на «ЗАБРАТЬ».
+function applyBarReward(reward, bonusStickerId) {
+  const opponent = getCurrentOpponent();
+  // 1) Сама награда по rewardType
+  switch (reward.kind) {
+    case 'coins':
+      world.coins += reward.amount;
+      logEvent(`+${reward.amount}💰 (${opponent.name})`, 'kill');
+      break;
+    case 'essence':
+      world.essence += reward.amount;
+      logEvent(`+${reward.amount}🔮 (${opponent.name})`, 'kill');
+      break;
+    case 'shards': {
+      const owned = loadoutState.unlocked;
+      if (owned.length === 0) {
+        logEvent('Шарды некуда вешать — ни одного скилла не открыто', 'warn');
+        break;
+      }
+      for (let i = 0; i < reward.shards; i++) {
+        const id = owned[Math.floor(Math.random() * owned.length)];
+        addShard(id, 1);
+      }
+      logEvent(`+${reward.shards} шардов (распределены)`, 'kill');
+      break;
+    }
+    case 'shards_plus_token': {
+      addGachaToken(reward.gachaTokens || 1);
+      const owned = loadoutState.unlocked;
+      if (owned.length > 0) {
+        for (let i = 0; i < reward.shards; i++) {
+          const id = owned[Math.floor(Math.random() * owned.length)];
+          addShard(id, 1);
+        }
+      }
+      logEvent(`+${reward.gachaTokens}🎰 +${reward.shards} шардов`, 'crit');
+      break;
+    }
+    case 'item': {
+      // Бар даёт предметы со скейлом по barLevel (= medals + 1 на момент боя).
+      const item = generateItem(pickRandomSlot(), reward.rarity, barState.medals + 1);
+      if (item) {
+        addItem(item);
+        logEvent(`Дроп: [${RARITIES[item.rarity].name}] ${EQUIPMENT_SLOTS[item.slot].name}`, 'crit');
+      }
+      break;
+    }
+  }
+  // 2) Побочный стикер (если выпал)
+  if (bonusStickerId) {
+    const s = STICKERS[bonusStickerId];
+    logEvent(`📼 БОНУС-НАКЛЕЙКА: ${s.icon} ${s.name}!`, 'crit');
+    showStickerToast(bonusStickerId);
+  }
+  // 3) Учёт победы + advance противника (если 3/3)
+  const advanced = recordBarWin();
+  if (advanced) {
+    const next = getCurrentOpponent();
+    logEvent(`БАР: на ринге следующий — ${next.icon} ${next.name}`, 'crit');
+  }
+  // 4) Сохранение + перерисовка вкладки бара
+  saveGame();
+  renderHub();
+}
+
+function pickRandomSlot() {
+  const slotIds = Object.keys(EQUIPMENT_SLOTS);
+  return slotIds[Math.floor(Math.random() * slotIds.length)];
 }
 
 // ───────── Resize / Camera ─────────
@@ -349,6 +473,7 @@ bindTapButton(() => {
   if (!result) return;
   flashTapFeedback(result);
   if (!result.failed) spawnXpFly(result.xpGain, result.zone);
+  if (result.cascade) logEvent('🔗 МУЛЬТИТАП — каскад!', 'crit');
   if (result.leveledUp) logEvent(`Уровень стата вверх: ${sessionStat}`, 'crit');
   if (result.capReached) logEvent(`${sessionStat}: достигнут cap тира — апгрейдь тренажёр`, 'crit');
   renderTapDynamic();

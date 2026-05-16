@@ -37,14 +37,36 @@ export function describeSkillChips(id) {
   const heroMaxHp = getEffectiveStat('maxHp');
   const chips = [];
 
-  // 1. Тайминг — КД или заряды.
+  // 1. Главный эффект — урон / хил / бонусы баффа. Идёт первым: это «выход» скилла,
+  // самое информативное число. Multi-hit: total = perHit × hits, маркер «×N» в label.
+  if (s.targetType === 'self_heal') {
+    const heal = Math.round(heroMaxHp * s.healPctOfMaxHp * lm);
+    chips.push({ icon: '💚', value: `${heal}`, label: 'ХИЛ' });
+  } else if (s.targetType === 'self_buff') {
+    // Бонусы баффа скейлятся с уровнем (см. battle.js: def.bonusX * lvlMult).
+    if (s.bonusDamagePct) {
+      chips.push({ icon: '⚔', value: `+${Math.round(s.bonusDamagePct * lm * 100)}%`, label: 'УРОН' });
+    }
+    if (s.bonusAttackSpeedPct) {
+      chips.push({ icon: '⚡', value: `+${Math.round(s.bonusAttackSpeedPct * lm * 100)}%`, label: 'СК.АТК' });
+    }
+    if (s.minDurationSec != null && s.maxDurationSec != null) {
+      chips.push({ icon: '⏳', value: `${s.minDurationSec}-${s.maxDurationSec}с`, label: 'БАФФ' });
+    }
+  } else if (s.baseDamageMultiplier) {
+    const hits = s.hits || 1;
+    const total = Math.round(heroDamage * s.baseDamageMultiplier * lm * hits);
+    chips.push({ icon: '⚔', value: `${total}`, label: hits > 1 ? `УРОН ×${hits}` : 'УРОН' });
+  }
+
+  // 2. Тайминг — КД или заряды.
   if (s.activation === 'cooldown') {
     chips.push({ icon: '⏱', value: `${s.baseCooldown}с`, label: 'КД' });
   } else if (s.activation === 'charges') {
     chips.push({ icon: '🔋', value: `${s.minCharges}-${s.maxCharges}`, label: 'ЗАРЯДЫ' });
   }
 
-  // 2. Тип цели.
+  // 3. Тип цели (для атакующих — self_heal/self_buff раскрываются в блоке 1).
   switch (s.targetType) {
     case 'single':
       chips.push({ icon: '🎯', value: 'ОДНА', label: 'ЦЕЛЬ' });
@@ -58,19 +80,6 @@ export function describeSkillChips(id) {
     case 'dash_line':
       chips.push({ icon: '➡', value: 'ЛИНИЯ', label: 'РЫВОК' });
       break;
-    case 'self_heal': {
-      const heal = Math.round(heroMaxHp * s.healPctOfMaxHp * lm);
-      chips.push({ icon: '💚', value: `${heal}`, label: 'ХИЛ' });
-      break;
-    }
-  }
-
-  // 3. Урон (для атакующих скиллов) — живое число.
-  // Для multi-hit показываем total = perHit × hits, в label указываем «×N» как маркер мульти-удара.
-  if (s.targetType !== 'self_heal' && s.targetType !== 'self_buff' && s.baseDamageMultiplier) {
-    const hits = s.hits || 1;
-    const total = Math.round(heroDamage * s.baseDamageMultiplier * lm * hits);
-    chips.push({ icon: '⚔', value: `${total}`, label: hits > 1 ? `УРОН ×${hits}` : 'УРОН' });
   }
 
   // 4. DoT — total урон за всю длительность.
@@ -79,21 +88,7 @@ export function describeSkillChips(id) {
     chips.push({ icon: '🩸', value: `${totalDoT}`, label: `ЗА ${s.dot.durationSec}С` });
   }
 
-  // 5. Self-buff (rage) — три отдельных чипа: урон, ск.атаки, длительность.
-  // Бонусы baff'а скейлятся с уровнем скилла (см. battle.js: def.bonusX * lvlMult).
-  if (s.targetType === 'self_buff') {
-    if (s.bonusDamagePct) {
-      chips.push({ icon: '⚔', value: `+${Math.round(s.bonusDamagePct * lm * 100)}%`, label: 'УРОН' });
-    }
-    if (s.bonusAttackSpeedPct) {
-      chips.push({ icon: '⚡', value: `+${Math.round(s.bonusAttackSpeedPct * lm * 100)}%`, label: 'СК.АТК' });
-    }
-    if (s.minDurationSec != null && s.maxDurationSec != null) {
-      chips.push({ icon: '⏳', value: `${s.minDurationSec}-${s.maxDurationSec}с`, label: 'БАФФ' });
-    }
-  }
-
-  // 6. Спецификации.
+  // 5. Спецификации.
   if (s.castDelaySec) {
     chips.push({ icon: '⏳', value: `${s.castDelaySec}с`, label: 'КАСТ' });
   }

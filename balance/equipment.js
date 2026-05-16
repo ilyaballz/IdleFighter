@@ -5,11 +5,13 @@
 import { MILESTONE_LEGENDARY_BOOST } from './enemies.js';
 
 // Все primary stats — «всегда полезные» (универсальные DPS/выживаемость/утилити).
-// Crit (chance/multiplier) — синергийный билд, оставлен только во вторичных аффиксах:
-// игрок целенаправленно собирает crit, а не получает мусорный common-браслет.
+// Цепь сделана крит-слотом: даёт critChance primary. Раньше там был damagePct, но он
+// создавал outlier-предмет (×2.5 множитель от одной шмотки на L20 legendary). Теперь
+// damagePct остаётся только во вторичных аффиксах с заниженной базой — стак идёт от
+// нескольких источников, не от одной «имба-цепи».
 export const EQUIPMENT_SLOTS = {
   fists:    { name: 'Кулаки',    icon: '🥊', primaryStat: 'damage' },
-  chain:    { name: 'Цепь',      icon: '⛓️',  primaryStat: 'damagePct' },
+  chain:    { name: 'Цепь',      icon: '⛓️',  primaryStat: 'critChance' },
   bracers:  { name: 'Браслеты',  icon: '💪', primaryStat: 'skillCdrPct' },
   jacket:   { name: 'Куртка',    icon: '🧥', primaryStat: 'maxHp' },
   bandana:  { name: 'Бандана',   icon: '🎽', primaryStat: 'defense' },
@@ -29,7 +31,7 @@ export const RARITIES = {
 // Все ключи здесь должны соответствовать `primaryStat` какого-то слота выше.
 export const PRIMARY_AFFIX_BASE = {
   damage:         5,
-  damagePct:      0.08,    // +8% мультипликативного урона
+  critChance:     0.03,    // +3% (на L20 legendary → +55%, capCritChance 75% оставляет место для secondary стака)
   maxHp:          30,
   defense:        0.04,    // +4%
   attackSpeedPct: 0.08,    // +8%
@@ -42,7 +44,7 @@ export const PRIMARY_AFFIX_BASE = {
 // (от тренажёров и от других аффиксов). Считаются как множитель `(base + flat) × (1 + pct)`.
 export const SECONDARY_AFFIXES = [
   { type: 'damage',         base: 3 },
-  { type: 'damagePct',      base: 0.03 },
+  { type: 'damagePct',      base: 0.02 },   // снижено с 0.03 — без primary-источника damagePct стак идёт только через secondary
   { type: 'critChance',     base: 0.02 },
   { type: 'critMultiplier', base: 0.15 },
   { type: 'maxHp',          base: 20 },
@@ -53,10 +55,21 @@ export const SECONDARY_AFFIXES = [
   { type: 'skillCdrPct',    base: 0.04 },
 ];
 
-export const LOCATION_VALUE_SCALE = 1.10; // +10% к ценности предмета за локацию
+export const LOCATION_VALUE_SCALE = 1.05; // +5% к ценности предмета за локацию (см. balance-обсуждение 2026-05-16)
 
 // Разброс значений вторичных аффиксов внутри одной редкости (±20%).
 export const SECONDARY_AFFIX_VARIANCE = 0.2;
+
+// Базовый множитель ценности аффикса: вес редкости × scale по локации.
+export function getAffixValueMult(rarityWeight, locationLevel) {
+  return rarityWeight * Math.pow(LOCATION_VALUE_SCALE, Math.max(0, locationLevel - 1));
+}
+
+// Округление значения аффикса по его типу: int для damage/maxHp, 3 знака для процентных/долей.
+export function roundAffixValue(type, value) {
+  if (type === 'damage' || type === 'maxHp') return Math.round(value);
+  return Math.round(value * 1000) / 1000;
+}
 
 // ───────── Прокачка предметов: эссенция ─────────
 // Эссенция (🔮) — единственный источник прокачки primary affix предмета.
@@ -86,22 +99,22 @@ export const UPGRADE_LEVEL_COSTS = [5, 10, 20, 40, 80, 160];
 export const UPGRADE_PRIMARY_PER_LEVEL = 0.10;
 
 // Таблицы редкости дропа по локации. Ключи — id редкости из RARITIES, значения — веса.
-// Кривая растянута так, чтобы пик пришёлся на L15+ (а не L10+ как раньше),
-// L10-14 — промежуточные ступени для постепенного роста.
+// Кривая растянута под 20 локаций (главы 1-2 Город+Подземка). Пик — на L20+
+// (финал главы 2, Машинист). L10 (финал главы 1, Авторитет) — «эпик становится нормой».
 //
 // На milestone-локациях (см. MILESTONE_LEGENDARY_BOOST в enemies.js) шанс легендарки доп.
 // повышается — награда за «пробитие стенки».
 function rawBossRarityWeights(loc) {
   if (loc <= 1)  return { common: 60, good: 40 };
   if (loc <= 2)  return { common: 40, good: 55, rare: 5 };
-  if (loc <= 3)  return { common: 20, good: 60, rare: 20 };
-  if (loc <= 4)  return { good: 50, rare: 45, epic: 5 };
-  if (loc <= 5)  return { good: 30, rare: 55, epic: 14, legendary: 1 };
-  if (loc <= 7)  return { good: 15, rare: 55, epic: 27, legendary: 3 };
-  if (loc <= 9)  return { rare: 45, epic: 45, legendary: 10 };
-  if (loc <= 11) return { rare: 38, epic: 50, legendary: 12 };
-  if (loc <= 13) return { rare: 32, epic: 53, legendary: 15 };
-  if (loc <= 14) return { rare: 28, epic: 54, legendary: 18 };
+  if (loc <= 4)  return { common: 20, good: 60, rare: 20 };
+  if (loc <= 6)  return { good: 50, rare: 45, epic: 5 };
+  if (loc <= 8)  return { good: 30, rare: 55, epic: 14, legendary: 1 };
+  if (loc <= 10) return { good: 15, rare: 55, epic: 27, legendary: 3 };
+  if (loc <= 12) return { rare: 45, epic: 45, legendary: 10 };
+  if (loc <= 14) return { rare: 38, epic: 50, legendary: 12 };
+  if (loc <= 16) return { rare: 32, epic: 53, legendary: 15 };
+  if (loc <= 18) return { rare: 28, epic: 54, legendary: 18 };
   return                 { rare: 25, epic: 55, legendary: 20 };
 }
 
@@ -114,23 +127,23 @@ export function bossRarityWeights(loc) {
 
 export function eliteRarityWeights(loc) {
   if (loc <= 2)  return { common: 100 };
-  if (loc <= 3)  return { common: 80, good: 20 };
-  if (loc <= 5)  return { common: 60, good: 35, rare: 5 };
-  if (loc <= 7)  return { common: 40, good: 45, rare: 14, epic: 1 };
-  if (loc <= 9)  return { common: 25, good: 50, rare: 22, epic: 3 };
-  if (loc <= 11) return { common: 22, good: 47, rare: 26, epic: 4, legendary: 1 };
-  if (loc <= 13) return { common: 18, good: 43, rare: 31, epic: 7, legendary: 1 };
-  if (loc <= 14) return { common: 17, good: 41, rare: 33, epic: 8, legendary: 1 };
+  if (loc <= 4)  return { common: 80, good: 20 };
+  if (loc <= 6)  return { common: 60, good: 35, rare: 5 };
+  if (loc <= 8)  return { common: 40, good: 45, rare: 14, epic: 1 };
+  if (loc <= 10) return { common: 25, good: 50, rare: 22, epic: 3 };
+  if (loc <= 13) return { common: 22, good: 47, rare: 26, epic: 4, legendary: 1 };
+  if (loc <= 16) return { common: 18, good: 43, rare: 31, epic: 7, legendary: 1 };
+  if (loc <= 18) return { common: 17, good: 41, rare: 33, epic: 8, legendary: 1 };
   return                 { common: 15, good: 40, rare: 35, epic: 9, legendary: 1 };
 }
 
 export function regularRarityWeights(loc) {
-  if (loc <= 5)  return { common: 100 };
-  if (loc <= 7)  return { common: 90, good: 10 };
-  if (loc <= 9)  return { common: 75, good: 23, rare: 2 };
-  if (loc <= 11) return { common: 68, good: 26, rare: 6 };
-  if (loc <= 13) return { common: 64, good: 28, rare: 7, epic: 1 };
-  if (loc <= 14) return { common: 62, good: 29, rare: 8, epic: 1 };
+  if (loc <= 6)  return { common: 100 };
+  if (loc <= 9)  return { common: 90, good: 10 };
+  if (loc <= 12) return { common: 75, good: 23, rare: 2 };
+  if (loc <= 14) return { common: 68, good: 26, rare: 6 };
+  if (loc <= 16) return { common: 64, good: 28, rare: 7, epic: 1 };
+  if (loc <= 18) return { common: 62, good: 29, rare: 8, epic: 1 };
   return                 { common: 60, good: 30, rare: 9, epic: 1 };
 }
 

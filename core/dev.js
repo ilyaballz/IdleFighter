@@ -6,10 +6,12 @@ import { getEffectiveStat, heroState, resetAllProgression } from './stats_layer.
 import { loadoutState, addShard, addGachaToken, unlockAll } from './loadout.js';
 import { inventoryState, addItem, rollBossDrop, resetInventory } from './inventory.js';
 import { hubState, resetHubState, getTrainerLevelCap } from '../hub/state.js';
-import { resetBarState } from './bar_state.js';
+import { barState, resetBarState } from './bar_state.js';
+import { awardSticker, resetStickers, getUnlockedStickers } from './stickers_state.js';
+import { ALL_STICKER_IDS, STICKERS } from '../balance/stickers.js';
 import * as ftue from './ftue.js';
 import { wipeSave } from './save.js';
-import { renderHub } from '../hub/ui.js';
+import { renderHub, showStickerToast } from '../hub/ui.js';
 import { logEvent } from './logger.js';
 import {
   buildCurrentScenario, compareScenarios, runProgressionRange,
@@ -95,6 +97,31 @@ export function bindDevPanel(ctx) {
       refreshIfHub();
     }
   });
+  const devBarTicketBtn = $('dev-bar-ticket');
+  if (devBarTicketBtn) devBarTicketBtn.addEventListener('click', () => {
+    // Сознательно без клэмпа на BAR.maxTickets — для тестовой серии скретч-карт нужно
+    // больше билетов, чем продакшен-кэп. UI всё равно отрисует только maxTickets иконок.
+    barState.tickets++;
+    logEvent(`DEV: +1 билет бара (всего ${barState.tickets})`);
+    refreshIfHub();
+  });
+
+  const devStickerBtn = $('dev-sticker');
+  if (devStickerBtn) devStickerBtn.addEventListener('click', () => {
+    const owned = getUnlockedStickers();
+    const missing = ALL_STICKER_IDS.filter(id => !owned.has(id));
+    if (missing.length === 0) {
+      logEvent('DEV: все 25 наклеек уже собраны', 'warn');
+      return;
+    }
+    const id = missing[Math.floor(Math.random() * missing.length)];
+    if (awardSticker(id)) {
+      const s = STICKERS[id];
+      logEvent(`DEV: +наклейка ${s.icon} ${s.name}`, 'crit');
+      showStickerToast(id);
+      refreshIfHub();
+    }
+  });
   $('dev-stat-levels').addEventListener('click', () => {
     for (const s of ['strength', 'toughness', 'agility']) {
       const cap = getTrainerLevelCap(s);
@@ -107,6 +134,7 @@ export function bindDevPanel(ctx) {
     resetAllProgression();
     resetHubState();
     resetBarState();
+    resetStickers();
     ftue.reset();
     for (const id of Object.keys(SKILLS)) {
       loadoutState.levels[id] = 1;
@@ -125,8 +153,9 @@ export function bindDevPanel(ctx) {
 }
 
 function runSimulator() {
-  const reports = compareScenarios([buildCurrentScenario()], 1, 15);
-  reports.push(runProgressionRange(1, 15));
+  // Диапазон под текущий FINAL_LOCATION=20. При расширении до 40 (главы 3-4) — обновить.
+  const reports = compareScenarios([buildCurrentScenario()], 1, 20);
+  reports.push(runProgressionRange(1, 20));
   renderSimReport(reports);
   $('sim-modal').classList.add('show');
 }

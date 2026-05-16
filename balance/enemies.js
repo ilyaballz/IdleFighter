@@ -58,6 +58,34 @@ export const HEAVY_BASE = {
   name: 'Качок',
 };
 
+// Лекарь — supporter-враг. Стоит позади, испускает aura-радиус, в котором каждую секунду
+// хилит союзников (и себя). Сам хрупкий — низкое HP, почти не дерётся. Counter: single-target
+// burst (hook/cut/spinkick), чтобы выбить из роя и убить быстро.
+//
+// Поле `aura` — универсальная схема для саппортов (см. battle.js tickAuras).
+// Для будущих типов (баффер, негативная аура и т.п.) меняется только `effect` + `power`.
+export const HEALER_BASE = {
+  baseHp: 12,
+  baseDamage: 2,
+  baseAttackSpeed: 0.6,
+  moveSpeed: 65,
+  bodyRadius: 17,
+  baseCoinDrop: 2,
+  shardDropChance: 0.03,
+  equipmentDropChance: 0.04,
+  color: '#5be35b',           // зелёный — тематика хила
+  name: 'Лекарь',
+  aura: {
+    radius: 100,
+    tickSec: 1.0,
+    effect: 'heal',
+    // Сила хила в % от maxHp цели — скейлится автоматически с типом врага.
+    // На L11 regular (~100 HP) → +10, elite (~440 HP) → +44, heavy (~580 HP) → +58.
+    powerPct: 0.10,
+    color: '#5be35b',
+  },
+};
+
 export const BOSS_BASE = {
   baseAttackSpeed: 0.5,
   moveSpeed: 70,
@@ -82,7 +110,9 @@ export const SCALING = {
 //
 // Заметка: pack-тиры (T4 fromLoc) и таблицы редкости дропа в equipment.js пока завязаны на абсолютные
 // номера локаций — если будешь сильно растягивать игру, их тоже стоит передвинуть пропорционально.
-export const FINAL_LOCATION = 15;
+// 4 главы × 10 локаций = 40 при полном расширении. Сейчас реализованы главы 1-2 (L1-L20).
+// Главы 3-4 — в отдельной сессии (см. project_chapters_plan в memory).
+export const FINAL_LOCATION = 20;
 
 // ──────────────────────────────────────────────────────────────────────────
 // КРИВЫЕ СЛОЖНОСТИ — единая «крутилка баланса» по локациям.
@@ -132,19 +162,21 @@ function evaluateCurve(c, loc) {
 }
 
 // HP всех мобов (regular/elite/heavy/ranged + база босса до бонусного множителя).
+// growthRate растянут под 20 локаций: финальный множитель ×48 (vs ~50 у L15 при 1.3).
+// L1=×1, L5=×2.2, L10=×6.0, L15=×16, L20=×48.
 export const ENEMY_HP_CURVE = {
   mode: 'exp',
   startLocation: 1,
   startMult:     1.0,
-  growthRate:    1.3,        // L1=×1, L5=×3.0, L10=×12.2, L15=×48.8
+  growthRate:    1.22,
 };
 
-// Damage всех мобов.
+// Damage всех мобов — зеркалит HP.
 export const ENEMY_DAMAGE_CURVE = {
   mode: 'exp',
   startLocation: 1,
   startMult:     1.0,
-  growthRate:    1.3,        // зеркалит HP — мобы кусаются пропорционально HP
+  growthRate:    1.22,
 };
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -154,13 +186,17 @@ export const ENEMY_DAMAGE_CURVE = {
 // а не по локации — то есть curve управляет «насколько ранние milestone-боссы мягче поздних».
 // ──────────────────────────────────────────────────────────────────────────
 
-export const MILESTONE_LOCATIONS = [5, 10, 15];
+// Один milestone на конец каждой главы — это финальный босс главы.
+// Главы 1-2: L10 (Авторитет, Город), L20 (Машинист, Подземка).
+// При реализации глав 3-4 — добавить 30, 40.
+export const MILESTONE_LOCATIONS = [10, 20];
 
 // Bump к hpMult босса: первый milestone мягкий, последний — жёсткий.
+// При 2 milestones [10, 20]: L10 = 1.10, L20 = 1.5 — финальный босс главы 2 ощутимо толще.
 export const MILESTONE_HP_BUMP_CURVE = {
-  startMult: 1.10,   // bump на первом milestone (L5) — мягкий вход в boss-walls
-  endMult:   1.5,    // bump на последнем milestone (L15)
-  curve:     1.0,    // 1=линейно. >1=медленный старт. <1=быстрый старт.
+  startMult: 1.10,
+  endMult:   1.5,
+  curve:     1.0,
 };
 
 // Bump к damage босса.
@@ -216,12 +252,57 @@ export const BOSS_DAMAGE_CURVE = {
   locationBumps: DMG_BUMPS,
 };
 
-// Гайки 🔩 — отдельная валюта для прокачки дома (отделена от монет тренажёров).
-// Дропают только боссы локаций, чтобы накопление гаек = «зачистил локацию = заработал на QOL».
-// Формула 1 + floor(loc/2): L1=1, L2-3=2, L4-5=3, L10=6, L15=8.
-// Итог за один прогон L1-L15 ≈ 71 гайка. Полная прокачка одного здания дома стоит 50.
+// Гайки 🔩 — валюта Дома (отделена от монет тренажёров).
+// Сплит 60/40 (босс/арена): TOTAL_NUT = bossBonus + sum(arenaDrops). Игрок получает свою долю
+// гаек даже без победы над боссом — «застрял на стенке» больше не означает «0 прогресса».
+// Total per location = 1 + floor(loc/2) (как было раньше до сплита), просто перераспределён.
+//
+// Правило: каждая 3-я не-боссовая арена даёт 1 гайку. L1-L2 без арена-дропа (обучение).
+// L20: 4 арена-гайки (A3,A6,A9,A12) + 7 с босса = 11. Не дошёл до босса → 4 вместо 11.
+
+const ARENA_NUT_DROP_INTERVAL = 3;
+
+function nutDropArenaCount(locationIndex) {
+  if (locationIndex <= 2) return 0;
+  const arenas = arenasForLocation(locationIndex);
+  const nonBoss = Math.max(0, arenas - 1);
+  return Math.floor(nonBoss / ARENA_NUT_DROP_INTERVAL);
+}
+
+// Дроп с зачищенной арены (не-боссовой). Вызывается в game.js при `onArenaCleared`.
+export function arenaNutDrop(locationIndex, arenaIndex) {
+  if (locationIndex <= 2) return 0;
+  const arenas = arenasForLocation(locationIndex);
+  if (arenaIndex === arenas) return 0;                              // boss-арена не считается
+  if (arenaIndex % ARENA_NUT_DROP_INTERVAL !== 0) return 0;
+  return 1;
+}
+
+// Бонус за победу над боссом — остаток после сплита.
 export function bossNutDrop(locationIndex) {
-  return 1 + Math.floor(locationIndex / 2);
+  const total = 1 + Math.floor(locationIndex / 2);
+  return Math.max(1, total - nutDropArenaCount(locationIndex));
+}
+
+// Бонус энергии за зачищенную арену (не-боссовую). Часть от 30 ⚡ финала локации.
+const ARENA_ENERGY_DROP_INTERVAL = 3;
+const ARENA_ENERGY_DROP_VALUE = 2;
+
+export function arenaEnergyDrop(locationIndex, arenaIndex) {
+  if (locationIndex <= 2) return 0;
+  const arenas = arenasForLocation(locationIndex);
+  if (arenaIndex === arenas) return 0;
+  if (arenaIndex % ARENA_ENERGY_DROP_INTERVAL !== 0) return 0;
+  return ARENA_ENERGY_DROP_VALUE;
+}
+
+// Бонус энергии с босса — total 30 минус арена-распределение.
+export function bossEnergyDrop(locationIndex) {
+  if (locationIndex <= 2) return 30;
+  const arenas = arenasForLocation(locationIndex);
+  const nonBoss = Math.max(0, arenas - 1);
+  const arenaTotal = Math.floor(nonBoss / ARENA_ENERGY_DROP_INTERVAL) * ARENA_ENERGY_DROP_VALUE;
+  return Math.max(0, 30 - arenaTotal);
 }
 
 export function enemyHpMultForLocation(loc) {
@@ -309,132 +390,157 @@ export function specialSpawnChance(locationIndex) {
   );
 }
 
-// Спец-арены — теперь с тирированной композицией. Каждый pack-type имеет несколько тиров,
-// активируемых от локации. pickTier выбирает самый высокий тир, для которого loc >= fromLoc.
+// Спец-арены — тематические паки с **жёсткими cap'ами** по count и эскалацией через профиль.
+// Принцип: каждый pack-тип сохраняет свою идентичность даже на пике. Mixed_pack — единственный
+// «всё подряд», специально оставлен как контраст. См. project_chapters_plan в memory.
 //
-// Цель — чтобы повторное появление того же pack-типа на разных локациях ощущалось как
-// эскалация, а не как «уже видел». Например, ranged_pack начинается с 2 дальников, к L7
-// получает качка, к L10 — элиту. Бэг пака переписан на более «банда-like» состав.
+// pickTier выбирает самый высокий тир, для которого loc >= fromLoc. Тиры сквозные между
+// главами — не перезапускаются.
 //
-// units: { kind, count, scaleHp?, scaleDmg?, scaleRadius? } — scale поверх wave × loc.
+// Cap'ы по архетипам:
+//   swarm:       14 регуляров (после cap'а — speed↑ + hp↓: молниеноснее, но мрут с 1-2 хитов)
+//   ranged_pack: 6 дальников (после cap'а — range↑: бьют издалека, труднее догнать)
+//   heavy_pack:  4 тяжёлых (после cap'а — только с новым kind в гл. 3+)
+//   mixed_pack:  ~7 юнитов (состав варьируется, размер — нет)
+//
+// units: { kind, count, scaleHp?, scaleDmg?, scaleRadius?, scaleSpeed?, scaleRange? }
 export const SPECIAL_ARENAS = {
+  // ──────────────────────────────────────────────────────────────────────────
+  // Принцип прогрессии всех паков: ~5 локаций на тир, границы привязаны к
+  // финалам глав (L10/L20). Каждый тир усиливает ОПРЕДЕЛЯЮЩУЮ фичу пака,
+  // а не плодит чужие kind'ы. Cap'ы по count держим — после них эскалация
+  // через профиль (speed/range/role-mixology).
+  // Тиры L1-L20 реализованы здесь. T5+ для глав 3-4 (Клуб/Стройка) —
+  // см. project_chapters_plan.md, добавятся вместе с новыми kind'ами
+  // (Лекарь, Щитоносец, Берсерк, Подрывник).
+  // ──────────────────────────────────────────────────────────────────────────
   swarm: {
     label: 'рой',
+    // Defining feature: количество + скорость (хрупкие). После cap=14 — speed↑, hp↓.
     tiers: [
-      { fromLoc: 3, units: [
-        { kind: 'regular', count: 8, scaleHp: 0.5, scaleDmg: 0.7, scaleRadius: 0.8 },
+      // T1 (L1-L5, видим с L3 = unlock) — знакомство, рой как «много мелких».
+      { fromLoc: 1, units: [
+        { kind: 'regular', count: 6, scaleHp: 0.6, scaleDmg: 0.7, scaleRadius: 0.85 },
       ]},
+      // T2 (L6-L10) — стандарт Города, рой быстрее и больше.
       { fromLoc: 6, units: [
-        { kind: 'regular', count: 10, scaleHp: 0.5, scaleDmg: 0.7, scaleRadius: 0.8 },
-        { kind: 'ranged',  count: 1 },
+        { kind: 'regular', count: 10, scaleHp: 0.5, scaleDmg: 0.7, scaleRadius: 0.8, scaleSpeed: 1.2 },
       ]},
-      { fromLoc: 10, units: [
-        { kind: 'regular', count: 12, scaleHp: 0.5, scaleDmg: 0.7, scaleRadius: 0.8 },
-        { kind: 'ranged',  count: 2 },
+      // T3 (L11-L15) — упираемся в cap (14), Подземка делает их стремительнее.
+      { fromLoc: 11, units: [
+        { kind: 'regular', count: 14, scaleHp: 0.4, scaleDmg: 0.7, scaleRadius: 0.78, scaleSpeed: 1.3 },
       ]},
-      { fromLoc: 15, units: [
-        { kind: 'regular', count: 14, scaleHp: 0.5, scaleDmg: 0.7, scaleRadius: 0.8 },
-        { kind: 'ranged',  count: 2 },
-        { kind: 'elite',   count: 1 },
+      // T4 (L16-L20) — пик Подземки: speed×1.5, hp×0.3 — мрут с одного хита AOE, но окружают за секунды.
+      { fromLoc: 16, units: [
+        { kind: 'regular', count: 14, scaleHp: 0.3, scaleDmg: 0.7, scaleRadius: 0.75, scaleSpeed: 1.5 },
       ]},
+      // T5+ (L21+, главы 3-4) — +Лекарь (Клуб), +Берсерк/Подрывник (Стройка).
     ],
   },
   ranged_pack: {
     label: 'дальники',
+    // Defining feature: объём дистанционного огня. 2 регуляра на фронтлайне ВСЕГДА —
+    // без них герой в чистом ranged-паке бегает, снаряды промахиваются по движущемуся
+    // (heroSpeed 180 × duration 0.5 = 90 ед смещение vs catch radius 54).
+    // После cap=6 ranged — добавятся роли в гл. 3+ (Лекарь, Подрывник).
     tiers: [
-      { fromLoc: 3, units: [
-        { kind: 'ranged',  count: 2 },
-        { kind: 'regular', count: 2, scaleHp: 0.7 },
-      ]},
-      { fromLoc: 6, units: [
-        { kind: 'ranged',  count: 2 },
-        { kind: 'regular', count: 3 },
-      ]},
-      { fromLoc: 10, units: [
-        { kind: 'ranged',  count: 3 },
-        { kind: 'regular', count: 3 },
-      ]},
-      { fromLoc: 15, units: [
-        { kind: 'ranged',  count: 4 },
-        { kind: 'elite',   count: 1 },
+      // T1 (L5-L10) — знакомство с дистанционным прессом.
+      { fromLoc: 5, units: [
         { kind: 'regular', count: 2 },
+        { kind: 'ranged',  count: 3 },
       ]},
+      // T2 (L11-L15) — вход в Подземку. Снайперы (+20% range от chapter-skin).
+      { fromLoc: 11, units: [
+        { kind: 'regular', count: 2 },
+        { kind: 'ranged',  count: 5 },
+      ]},
+      // T3 (L16-L20) — пик Подземки, cap по count (6).
+      { fromLoc: 16, units: [
+        { kind: 'regular', count: 2 },
+        { kind: 'ranged',  count: 6 },
+      ]},
+      // T4+ (L21+) — + Лекарь, + Подрывник (главы 3-4).
     ],
   },
   mixed_pack: {
     label: 'банда',
+    // Defining feature: разнообразие угроз (комплекс известных kind'ов).
+    // Прогрессия — добавление новых типов, потом увеличение их количества.
     tiers: [
-      { fromLoc: 3, units: [
+      // T1 (L7-L10) — базовый комплекс: элита + регуляры + дистанционник.
+      { fromLoc: 7, units: [
         { kind: 'elite',   count: 1 },
-        { kind: 'regular', count: 3 },
+        { kind: 'regular', count: 2 },
         { kind: 'ranged',  count: 1 },
       ]},
-      { fromLoc: 6, units: [
+      // T2 (L11-L15) — вход в Подземку: банда впитывает heavy и Лекаря.
+      // Лекарь — новый kind, тикает heal-aura союзникам в радиусе → принуждение к single-target burst.
+      { fromLoc: 11, units: [
         { kind: 'elite',   count: 1 },
         { kind: 'heavy',   count: 1 },
-        { kind: 'regular', count: 3 },
+        { kind: 'regular', count: 2 },
+        { kind: 'healer',  count: 1 },
         { kind: 'ranged',  count: 1 },
       ]},
-      { fromLoc: 10, units: [
-        { kind: 'elite',   count: 1 },
-        { kind: 'heavy',   count: 1 },
-        { kind: 'regular', count: 3 },
-        { kind: 'ranged',  count: 2 },
-      ]},
-      { fromLoc: 15, units: [
+      // T3 (L16-L20) — пик Подземки: больше элит, heavy, и 1 Лекарь поддерживает.
+      { fromLoc: 16, units: [
         { kind: 'elite',   count: 2 },
         { kind: 'heavy',   count: 1 },
-        { kind: 'regular', count: 3 },
-        { kind: 'ranged',  count: 2 },
+        { kind: 'regular', count: 2 },
+        { kind: 'healer',  count: 1 },
+        { kind: 'ranged',  count: 1 },
       ]},
+      // T4+ (L21+) — + Щитоносец (Клуб), + Берсерк, + Подрывник (Стройка).
     ],
   },
   heavy_pack: {
     label: 'тяжёлая банда',
+    // Defining feature: плотность telegraph'ов (KD-приоритизация). Cap=3 heavy.
+    // После cap — добавится Щитоносец (heavy kind, гл. 3+).
     tiers: [
-      { fromLoc: 3, units: [
-        { kind: 'heavy',  count: 1 },
+      // T1 (L11-L13) — знакомство с качком: один telegraph, можно спокойно учиться обходить.
+      { fromLoc: 11, units: [
+        { kind: 'heavy', count: 1 },
+      ]},
+      // T2 (L14-L17) — telegraph под огнём: ranged заставляет двигаться, нельзя просто отойти.
+      { fromLoc: 14, units: [
+        { kind: 'heavy',  count: 2 },
         { kind: 'ranged', count: 1 },
       ]},
-      { fromLoc: 10, units: [
-        { kind: 'heavy',   count: 2 },
-        { kind: 'ranged',  count: 1 },
-        { kind: 'regular', count: 1 },
+      // T3 (L18-L20) — пик: cap (3) + ranged + Лекарь продлевает telegraph-окна.
+      { fromLoc: 18, units: [
+        { kind: 'heavy',  count: 3 },
+        { kind: 'ranged', count: 1 },
+        { kind: 'healer', count: 1 },
       ]},
-      { fromLoc: 13, units: [
-        { kind: 'heavy',   count: 2 },
-        { kind: 'ranged',  count: 1 },
-        { kind: 'regular', count: 2 },
-      ]},
-      { fromLoc: 17, units: [
-        { kind: 'heavy',   count: 2 },
-        { kind: 'ranged',  count: 2 },
-        { kind: 'regular', count: 1 },
-        { kind: 'elite',   count: 1 },
-      ]},
+      // T4+ (L21+) — + Щитоносец (Клуб), + Подрывник (Стройка).
     ],
   },
   boss_with_minions: {
     label: 'БОСС+банда',
     tiers: [
-      { fromLoc: 3, units: [
+      // T1 (L9) — босс + 3 мелких регуляра. Учим что у босса бывает свита перед финалом главы.
+      { fromLoc: 9, units: [
         { kind: 'boss',    count: 1 },
         { kind: 'regular', count: 3, scaleHp: 0.5, scaleDmg: 0.8, scaleRadius: 0.9 },
       ]},
-      { fromLoc: 6, units: [
-        { kind: 'boss',    count: 1 },
-        { kind: 'regular', count: 2 },
-        { kind: 'heavy',   count: 1 },
-        { kind: 'ranged',  count: 1 },
-      ]},
+      // T2 (L10) — финал Города. Авторитет получает свиту: 2 байкера + 1 шпана
       { fromLoc: 10, units: [
+        { kind: 'boss',    count: 1 },
+        { kind: 'elite',   count: 1 },
+        { kind: 'ranged',  count: 1 },
+        { kind: 'regular', count: 2 },
+      ]},
+      // T3 Подземка (L11-L17)
+      { fromLoc: 11, units: [
         { kind: 'boss',    count: 1 },
         { kind: 'elite',   count: 1 },
         { kind: 'heavy',   count: 1 },
         { kind: 'ranged',  count: 1 },
         { kind: 'regular', count: 2 },
       ]},
-      { fromLoc: 15, units: [
+      // T4 (L18-L20) — финал Подземки. Машинист + свита
+      { fromLoc: 18, units: [
         { kind: 'boss',    count: 1 },
         { kind: 'elite',   count: 1 },
         { kind: 'heavy',   count: 2 },
@@ -460,24 +566,14 @@ export function getSpecialArenaUnits(typeName, loc) {
   return pickTier(def.tiers, loc).units;
 }
 
-// Стандартная элит-арена (вне спец-замены) — тоже эскалирует.
-// L1-2: одиночный байкер (учим). L3+ постепенно становится мини-бандой.
-// Финальная композиция (2 элиты + банда) активируется на L15+, синхронно с пиком pack-тиров.
+// Стандартная элит-арена (вне спец-замены) — узнаваемый паттерн «1 толстый + мясо».
+// Раньше на L8+ она становилась «кашей» (elite+heavy+regular+ranged), что дублировало mixed_pack
+// и стирало её идентичность. Теперь — только элита + регуляры. Mixed_pack остаётся единственным
+// источником «всё подряд», арена-каждой-третьей сохраняет тематический паттерн.
 function getStandardEliteUnits(loc) {
-  if (loc <= 2)  return [{ kind: 'elite', count: 1 }];
-  if (loc <= 7)  return [{ kind: 'elite', count: 1 }, { kind: 'regular', count: 2 }];
-  if (loc <= 14) return [
-    { kind: 'elite',   count: 1 },
-    { kind: 'heavy',   count: 1 },
-    { kind: 'regular', count: 2 },
-    { kind: 'ranged',  count: 1 },
-  ];
-  return [
-    { kind: 'elite',   count: 2 },
-    { kind: 'heavy',   count: 1 },
-    { kind: 'regular', count: 2 },
-    { kind: 'ranged',  count: 1 },
-  ];
+  if (loc <= 2) return [{ kind: 'elite', count: 1 }];
+  if (loc <= 7) return [{ kind: 'elite', count: 1 }, { kind: 'regular', count: 2 }];
+  return [{ kind: 'elite', count: 1 }, { kind: 'regular', count: 3 }];
 }
 
 // Подписи арен для UI (HUD, label на канвасе)
@@ -500,11 +596,18 @@ export function arenaTypeLabel(type) {
 
 // Детерминированная (без рандома) — используется симулятором для предсказуемой модели.
 // Возвращает { type, units: [{kind, count, scale*?}] }.
+// Уважает FORCED_PACK_SPAWNS: на обучающих локациях принудительный пак стоит выше стандартного типа.
 export function getArenaComposition(arenaIndex, locationIndex) {
   const { enemiesPerArena, eliteArenaInterval } = LOCATION_STRUCTURE;
   const arenasPerLocation = arenasForLocation(locationIndex);
+  const isBossArena = arenaIndex === arenasPerLocation;
 
-  if (arenaIndex === arenasPerLocation) {
+  const forced = getForcedPackType(locationIndex, arenaIndex, isBossArena);
+  if (forced) {
+    return { type: forced, units: getSpecialArenaUnits(forced, locationIndex) };
+  }
+
+  if (isBossArena) {
     return { type: 'boss', units: [{ kind: 'boss', count: 1 }] };
   }
   if (arenaIndex % eliteArenaInterval === 0) {
@@ -517,19 +620,107 @@ export function getArenaComposition(arenaIndex, locationIndex) {
   return { type: 'regular', units: [{ kind: 'regular', count }] };
 }
 
-// Расписание открытия пак-типов: новый тип за локацию, чтобы игрок постепенно
-// учил каждый новый паттерн (AOE → ranged → mixed → heavy → boss+minions).
-// До unlock'а пак-тип не появляется, даже если specialSpawnChance > 0.
+// Возвращает forced pack-тип для обучающей локации или null.
+function getForcedPackType(locationIndex, arenaIndex, isBossArena) {
+  const slot = FORCED_PACK_SPAWNS[locationIndex];
+  if (!slot) return null;
+  if (isBossArena && slot.boss) return slot.boss;
+  return slot[arenaIndex] || null;
+}
+
+// Расписание открытия пак-типов: новый паттерн раз в 2 локации, чтобы игрок успел освоить
+// каждый перед следующим, и чтобы кадр совпадал с гача-выпадениями скиллов.
+// До unlock'а пак-тип не появляется в random-замене, даже если specialSpawnChance > 0.
+// FORCED_PACK_SPAWNS работает поверх и не зависит от unlock — это детерминированный онбординг.
+//
+// Главы:
+//   гл.1 (L1-L10, Город): swarm → ranged_pack → mixed_pack → boss_with_minions
+//   гл.2 (L11-L20, Подземка): + heavy_pack (новый kind «качок» = главная угроза подземки)
 export const PACK_UNLOCK_LOCATION = {
   swarm:             3,
-  ranged_pack:       4,
-  mixed_pack:        5,
-  heavy_pack:        6,
-  boss_with_minions: 7,
+  ranged_pack:       5,
+  mixed_pack:        7,
+  boss_with_minions: 9,
+  heavy_pack:        11,
+};
+
+// Детерминированные «обучающие» встречи: первый раз новый паттерн появляется на фиксированной
+// арене конкретной локации, гарантированно — чтобы игрок познакомился с ним сразу после
+// получения соответствующего скилла, а не зависел от specialSpawnChance.
+//
+// Формат: { [locationIndex]: { [arenaIndex|'boss']: 'pack_type' } }
+//   arenaIndex — конкретный номер арены (1-based).
+//   'boss' — последняя арена локации (boss-арена), без привязки к её номеру.
+//
+// На локациях без force включается обычная randomness через rollArenaComposition.
+export const FORCED_PACK_SPAWNS = {
+  2:  { 2: 'swarm' },                  // только что получили roundkick — применяем AOE против роя
+  5:  { 2: 'ranged_pack' },            // только что получили dash — догоняем дальников
+  7:  { 2: 'mixed_pack' },             // банда как комплекс известных угроз
+  9:  { boss: 'boss_with_minions' },   // последняя арена L9: учим про свиту босса перед финалом главы
+  11: { 2: 'heavy_pack' },             // вход в Подземку — сразу знакомство с heavy
 };
 
 function pickRandom(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Pity-система для спавна спец-арен.
+//
+// Два уровня:
+//   1) specChance pity — за каждую «сухую» арену (где спец-пак не выпал) прирост к
+//      эффективному шансу +Δ. После пака — сброс. Гарантирует что игрок не получит
+//      длинную полосу обычных регуляр-арен.
+//   2) Pack-type weighting — каждый pack-тип имеет вес. После выпадения вес тут же
+//      падает до RECENT_WEIGHT (0.2), за каждую арену регенерится на REGEN
+//      (0.2/арену), кап CAP (2.0). Типы которые давно не появлялись стартуют ×2
+//      по отношению к недавно выпавшему — выбор взвешенный.
+//
+// Сбрасывается в начале каждой локации через resetArenaPity (вызов из core/game.js
+// в startLocation). Forced паки тоже учитываются — иначе обучающие L2/L5/L7 ломали
+// бы статистику.
+// ═══════════════════════════════════════════════════════════════════════════
+
+export const PITY = {
+  specDryIncrement:  0.40,   // +40% к шансу за каждую сухую арену
+  packRecentWeight:  0.20,   // вес сразу после выпадения
+  packRegenPerArena: 0.20,   // +0.20 за каждую арену (back to 1.0 за 4 арены)
+  packWeightBase:    1.0,    // целевой/стартовый вес
+  packWeightCap:     2.0,    // максимум при долгой засухе
+};
+
+const _pity = {
+  specChance: 0,             // накопленный прирост к specialSpawnChance
+  packWeights: {},           // packType → вес
+};
+
+export function resetArenaPity() {
+  _pity.specChance = 0;
+  _pity.packWeights = {};
+}
+
+function getPackWeight(packType) {
+  if (_pity.packWeights[packType] == null) _pity.packWeights[packType] = PITY.packWeightBase;
+  return _pity.packWeights[packType];
+}
+
+function regenAllPackWeights() {
+  for (const k of Object.keys(_pity.packWeights)) {
+    _pity.packWeights[k] = Math.min(PITY.packWeightCap, _pity.packWeights[k] + PITY.packRegenPerArena);
+  }
+}
+
+function pickPackByWeight(types) {
+  const weights = types.map(getPackWeight);
+  const total = weights.reduce((a, b) => a + b, 0);
+  if (total <= 0) return types[Math.floor(Math.random() * types.length)];
+  let r = Math.random() * total;
+  for (let i = 0; i < types.length; i++) {
+    r -= weights[i];
+    if (r <= 0) return types[i];
+  }
+  return types[types.length - 1];
 }
 
 // Возвращает массив пак-типов, доступных для замены данного base.type на данной локации.
@@ -555,11 +746,35 @@ function availablePacksFor(baseType, loc) {
 }
 
 export function rollArenaComposition(arenaIndex, locationIndex) {
+  // Каждая арена «тикает» регенерацию pack-весов независимо от исхода.
+  regenAllPackWeights();
+
   const base = getArenaComposition(arenaIndex, locationIndex);
-  const chance = specialSpawnChance(locationIndex);
-  if (Math.random() >= chance) return base;
+  const arenasPerLocation = arenasForLocation(locationIndex);
+  const isBossArena = arenaIndex === arenasPerLocation;
+  const forcedType = getForcedPackType(locationIndex, arenaIndex, isBossArena);
+  if (forcedType) {
+    // Forced-пак тоже считается «выпадением» — сбрасываем specChance pity и пенализируем тип.
+    _pity.specChance = 0;
+    _pity.packWeights[forcedType] = PITY.packRecentWeight;
+    return base;
+  }
+
+  // Эффективный шанс = база + накопленный pity. Капается на 1.0.
+  const baseChance = specialSpawnChance(locationIndex);
+  const effectiveChance = Math.min(1.0, baseChance + _pity.specChance);
+  if (Math.random() >= effectiveChance) {
+    _pity.specChance += PITY.specDryIncrement;
+    return base;
+  }
+
   const opts = availablePacksFor(base.type, locationIndex);
-  if (opts.length === 0) return base;
-  const replacementType = pickRandom(opts);
+  if (opts.length === 0) {
+    // Нет доступных паков для этого base — обнулять pity не за что, продолжаем копить.
+    return base;
+  }
+  const replacementType = pickPackByWeight(opts);
+  _pity.specChance = 0;
+  _pity.packWeights[replacementType] = PITY.packRecentWeight;
   return { type: replacementType, units: getSpecialArenaUnits(replacementType, locationIndex) };
 }

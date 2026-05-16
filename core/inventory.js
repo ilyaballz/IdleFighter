@@ -2,9 +2,10 @@
 
 import {
   EQUIPMENT_SLOTS, RARITIES, PRIMARY_AFFIX_BASE,
-  SECONDARY_AFFIXES, LOCATION_VALUE_SCALE, SECONDARY_AFFIX_VARIANCE,
+  SECONDARY_AFFIXES, SECONDARY_AFFIX_VARIANCE,
   bossRarityWeights, eliteRarityWeights, regularRarityWeights,
   SALVAGE_VALUE, MAX_UPGRADE_LEVEL_BY_RARITY, UPGRADE_LEVEL_COSTS,
+  getAffixValueMult, roundAffixValue,
 } from '../balance/equipment.js';
 import { ENEMY_BASE, ELITE_BASE, BOSS_BASE } from '../balance/enemies.js';
 
@@ -23,21 +24,16 @@ export const inventoryState = {
 
 // ───────── Генерация ─────────
 
-function roundForType(type, value) {
-  if (type === 'damage' || type === 'maxHp') return Math.round(value);
-  return Math.round(value * 1000) / 1000;
-}
-
 export function generateItem(slotId, rarityId, locationLevel = 1) {
   const slot = EQUIPMENT_SLOTS[slotId];
   const rarity = RARITIES[rarityId];
   if (!slot || !rarity) return null;
 
-  const valueMult = rarity.weight * Math.pow(LOCATION_VALUE_SCALE, Math.max(0, locationLevel - 1));
+  const valueMult = getAffixValueMult(rarity.weight, locationLevel);
 
   // Primary affix: тип задан слотом
   const primaryBase = PRIMARY_AFFIX_BASE[slot.primaryStat];
-  const primaryValue = roundForType(slot.primaryStat, primaryBase * valueMult);
+  const primaryValue = roundAffixValue(slot.primaryStat, primaryBase * valueMult);
 
   // Secondary affixes — выбираем без повторов и без типа primary
   const usedTypes = new Set([slot.primaryStat]);
@@ -52,7 +48,7 @@ export function generateItem(slotId, rarityId, locationLevel = 1) {
     const variance = (1 - v) + Math.random() * (2 * v);
     affixes.push({
       type: pick.type,
-      value: roundForType(pick.type, pick.base * valueMult * variance),
+      value: roundAffixValue(pick.type, pick.base * valueMult * variance),
     });
   }
 

@@ -158,6 +158,8 @@ export function buildEnemyTemplate(unit, locationIndex, arenaIndex) {
       bodyRadius: ELITE_BASE.bodyRadius * sR,
       color: ELITE_BASE.color,
       coinDrop: ELITE_BASE.baseCoinDrop * locationIndex,
+      critChance: ELITE_BASE.critChance,
+      critMultiplier: ELITE_BASE.critMultiplier,
     }, 'elite', locationIndex);
   }
   if (unit.kind === 'ranged') {

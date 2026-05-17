@@ -22,6 +22,8 @@ export const ELITE_BASE = {
   equipmentDropChance: 0.25,
   color: '#9b59d4',
   name: 'Байкер',
+  critChance: 0.10,
+  critMultiplier: 2.0,
 };
 
 // Дальник — единственный пока ranged-враг. Бросает projectile (Молотов) с дистанции.
@@ -518,35 +520,25 @@ export const SPECIAL_ARENAS = {
   },
   boss_with_minions: {
     label: 'БОСС+банда',
+    // Спавн только force'ом на локациях кратных 5 (L5/L15/L25/L35), но НЕ кратных 10 —
+    // L10/L20/L30/L40 заняты чистыми боссами глав со своей механикой (CHAPTER_BOSSES),
+    // их специально не разбавляем бандой, чтобы summon/enrage читались.
+    // Из random-промоушена boss_with_minions исключён (см. availablePacksFor).
     tiers: [
-      // T1 (L9) — босс + 3 мелких регуляра. Учим что у босса бывает свита перед финалом главы.
-      { fromLoc: 9, units: [
+      // T1 (L5) — Город mid. Знакомство со свитой: босс + 3 мелких регуляра.
+      { fromLoc: 5, units: [
         { kind: 'boss',    count: 1 },
         { kind: 'regular', count: 3, scaleHp: 0.5, scaleDmg: 0.8, scaleRadius: 0.9 },
       ]},
-      // T2 (L10) — финал Города. Авторитет получает свиту: 2 байкера + 1 шпана
-      { fromLoc: 10, units: [
-        { kind: 'boss',    count: 1 },
-        { kind: 'elite',   count: 1 },
-        { kind: 'ranged',  count: 1 },
-        { kind: 'regular', count: 2 },
-      ]},
-      // T3 Подземка (L11-L17)
-      { fromLoc: 11, units: [
+      // T2 (L15) — Подземка mid. Свита впитывает heavy и ranged.
+      { fromLoc: 15, units: [
         { kind: 'boss',    count: 1 },
         { kind: 'elite',   count: 1 },
         { kind: 'heavy',   count: 1 },
         { kind: 'ranged',  count: 1 },
         { kind: 'regular', count: 2 },
       ]},
-      // T4 (L18-L20) — финал Подземки. Машинист + свита
-      { fromLoc: 18, units: [
-        { kind: 'boss',    count: 1 },
-        { kind: 'elite',   count: 1 },
-        { kind: 'heavy',   count: 2 },
-        { kind: 'ranged',  count: 2 },
-        { kind: 'regular', count: 2 },
-      ]},
+      // T3+ (L25, L35) — добавятся вместе с главами 3-4 (Клуб/Стройка).
     ],
   },
 };
@@ -640,7 +632,9 @@ export const PACK_UNLOCK_LOCATION = {
   swarm:             3,
   ranged_pack:       5,
   mixed_pack:        7,
-  boss_with_minions: 9,
+  // boss_with_minions: только force на L5/L15/L25/L35, из random-промоушена исключён
+  // (см. availablePacksFor). Значение здесь — документация «где впервые появляется».
+  boss_with_minions: 5,
   heavy_pack:        11,
 };
 
@@ -655,10 +649,13 @@ export const PACK_UNLOCK_LOCATION = {
 // На локациях без force включается обычная randomness через rollArenaComposition.
 export const FORCED_PACK_SPAWNS = {
   2:  { 2: 'swarm' },                  // только что получили roundkick — применяем AOE против роя
-  5:  { 2: 'ranged_pack' },            // только что получили dash — догоняем дальников
+  5:  { 2: 'ranged_pack',              // только что получили dash — догоняем дальников
+        boss: 'boss_with_minions' },   // mid-главы: знакомство со свитой босса (T1)
   7:  { 2: 'mixed_pack' },             // банда как комплекс известных угроз
-  9:  { boss: 'boss_with_minions' },   // последняя арена L9: учим про свиту босса перед финалом главы
   11: { 2: 'heavy_pack' },             // вход в Подземку — сразу знакомство с heavy
+  15: { boss: 'boss_with_minions' },   // mid Подземки: банда + heavy (T2)
+  // L10/L20 — чистые боссы глав (Авторитет/Машинист) без свиты, чтобы summon/enrage читались.
+  // L25/L35 — добавятся при реализации глав 3-4.
 };
 
 function pickRandom(arr) {
@@ -739,9 +736,8 @@ function availablePacksFor(baseType, loc) {
     if (loc >= u.heavy_pack) opts.push('heavy_pack');
     return opts;
   }
-  if (baseType === 'boss') {
-    return loc >= u.boss_with_minions ? ['boss_with_minions'] : [];
-  }
+  // boss → boss_with_minions из random'а исключён: банда вокруг босса спавнится только
+  // force'ом на L5/L15/L25/L35, а на L10/L20/L30/L40 боссы глав должны быть в чистом виде.
   return [];
 }
 

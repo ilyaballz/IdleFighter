@@ -1242,9 +1242,13 @@ function updateEnemies(arena, world, dt) {
     }
 
     e.attackCooldown -= dt;
-    // Ranged стреляет в любой точке ренжа (включая retreat-ветку снайпера).
-    // Melee — только когда стоит в attack-стойке (state==ATTACKING, не push-back).
-    const canAttack = isRanged ? (dist <= R) : (e.state === ENEMY_STATE.ATTACKING);
+    // Атакуем только в стойке. state == ATTACKING ставится во всех валидных случаях:
+    //   - ranged в зоне dist ≤ R+4 (включая retreat-ветку снайпера)
+    //   - melee в зоне dist ∈ [R-4, R+4]
+    // CHASING и melee push-back явно НЕ ATTACKING — атака не пройдёт.
+    // Раньше для ranged проверялось `dist <= R` отдельно, и в зоне (R, R+4] враг застревал:
+    // state=ATTACKING, но canAttack=false, и подойти ближе тоже нельзя (dist≤R+4).
+    const canAttack = e.state === ENEMY_STATE.ATTACKING;
     if (canAttack && e.attackCooldown <= 0) {
       if (e.windupDuration && !e.windingUpUntil) {
         // Качок: первый тик в attacking → стартует замах. Дальше враг встаёт колом

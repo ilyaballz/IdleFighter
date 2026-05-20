@@ -36,7 +36,7 @@ export const hubState = {
     agility:   freshTrainer(),
   },
   // Апгрейды дома (тиры). 1 = стартовый/бесплатный.
-  home: { fridge: 1, couch: 1, trailer: 1, coffee: 1 },
+  home: { shower: 1, couch: 1, trailer: 1, coffee: 1 },
   // Сохранённый прогресс по локациям
   currentLocationIndex: 1,
   // Активная сессия тап-тайминга
@@ -54,7 +54,7 @@ export function getEffectiveEnergyRegenPerSec() {
 }
 
 export function getEffectiveFatigueRecoverPerHour() {
-  return FATIGUE.recoverPerHour * homeTierValue('fridge', hubState.home.fridge);
+  return FATIGUE.recoverPerHour * homeTierValue('shower', hubState.home.shower);
 }
 
 // Шанс спавна «золотой зоны» **на каждый тап** (не per-sec) для конкретного тренажёра.
@@ -99,12 +99,30 @@ export function recoverGreenZones(dt) {
   }
 }
 
+// Универсальное снижение fatigue на N единиц на всех тренажёрах одновременно.
+// Используется магазином (стероид: −10 на всех). Возвращает фактически снятое (min от текущей).
+// В отличие от applyLocationClearFatigueRefund — без масштабирования shower и без флага «после боя».
+export function reduceFatigueAllTrainers(amount) {
+  if (amount <= 0) return 0;
+  let totalReduced = 0;
+  for (const stat of Object.keys(hubState.trainers)) {
+    const t = hubState.trainers[stat];
+    if (t.fatigue > 0) {
+      const reduced = Math.min(amount, t.fatigue);
+      t.fatigue -= reduced;
+      totalReduced += reduced;
+      recomputeWidths(t);
+    }
+  }
+  return totalReduced;
+}
+
 // Дискретный возврат свежести за зачистку локации. Применяется ко всем трём
 // тренажёрам, масштабируется текущим темпом холодильника (его прокачка усиливает
 // и пассивный тик, и этот возврат). Возвращает 0, если ни один тренажёр не был усталым.
 export function applyLocationClearFatigueRefund() {
-  const fridgeMult = homeTierValue('fridge', hubState.home.fridge);
-  const refund = FATIGUE.locationClearRefund * fridgeMult;
+  const showerMult = homeTierValue('shower', hubState.home.shower);
+  const refund = FATIGUE.locationClearRefund * showerMult;
   let applied = false;
   for (const stat of Object.keys(hubState.trainers)) {
     const t = hubState.trainers[stat];
@@ -162,6 +180,11 @@ export function getHomeBuildingInfo(buildingId) {
 }
 
 // walletDeduce(cost) — кошелёк гаек (см. core/game.js → onHomeUpgrade).
+//
+// On-upgrade buff (вариант B: +delta — «честный»):
+//   • Trailer → energy += (новый cap − старый cap). Игрок получает ровно прирост cap'а.
+//   • Shower / Couch → без явного буста (rate-апгрейд, эффект приходит через тик).
+// Top-fill (energy = cap) намеренно НЕ делается, чтобы не убить ценность энергетиков из магазина.
 export function tryUpgradeHome(buildingId, walletDeduce) {
   const up = HOME_UPGRADES[buildingId];
   if (!up) return false;
@@ -170,7 +193,14 @@ export function tryUpgradeHome(buildingId, walletDeduce) {
   const next = up.tiers[tier];
   if (!next) return false;
   if (!walletDeduce(next.nutCost)) return false;
-  hubState.home[buildingId]++;
+  if (buildingId === 'trailer') {
+    const oldCap = getEffectiveEnergyMax();
+    hubState.home[buildingId]++;
+    const newCap = getEffectiveEnergyMax();
+    hubState.energy = Math.min(newCap, hubState.energy + (newCap - oldCap));
+  } else {
+    hubState.home[buildingId]++;
+  }
   return true;
 }
 
@@ -283,7 +313,7 @@ export function resetHubState() {
     t.lifetimeTaps = 0;
     recomputeWidths(t);
   }
-  hubState.home = { fridge: 1, couch: 1, trailer: 1, coffee: 1 };
+  hubState.home = { shower: 1, couch: 1, trailer: 1, coffee: 1 };
   hubState.currentLocationIndex = 1;
   hubState.session = null;
 }

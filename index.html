@@ -246,6 +246,7 @@
   #hub-hud .row .energy { color: var(--neon-cyan); }
   #hub-hud .row .coins  { color: var(--neon-yellow); }
   #hub-hud .row #hub-essence { color: #d97aff; }
+  #hub-hud .row #hub-crystals { color: #4fd6ff; }
   #hub-hud .row .loc-info { color: var(--neon-pink); font-family: 'Bungee', sans-serif; font-size: 13px; letter-spacing: 1px; }
   #hub-hud .energy-bar {
     height: 6px;
@@ -1472,6 +1473,110 @@
     box-shadow: 0 0 8px rgba(255, 210, 63, 0.4);
   }
 
+  /* Магазин */
+  #shop-content {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .shop-header {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 6px 10px;
+    color: var(--dim);
+    font-size: 13px;
+  }
+  .shop-header b {
+    color: var(--neon-cyan);
+    font-family: 'VT323', monospace;
+    font-size: 15px;
+    margin-left: 4px;
+  }
+  .shop-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .shop-slot {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 10px 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    text-align: center;
+    min-height: 140px;
+  }
+  .shop-slot.empty {
+    opacity: 0.5;
+    border-style: dashed;
+    justify-content: center;
+  }
+  .shop-slot-icon {
+    font-size: 30px;
+    line-height: 1;
+  }
+  .shop-slot-label {
+    font-size: 13px;
+    color: var(--text);
+    font-family: 'VT323', monospace;
+    letter-spacing: 0.5px;
+  }
+  .shop-slot.equipment-slot .shop-slot-label {
+    font-family: 'Bungee', sans-serif;
+    font-size: 11px;
+    letter-spacing: 1px;
+  }
+  .shop-slot-sub {
+    font-size: 11px;
+    color: var(--dim);
+  }
+  .shop-slot-primary {
+    font-size: 11px;
+    color: var(--dim);
+  }
+  .shop-slot-primary .primary-stat .unit { color: var(--dim); }
+  .shop-slot-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: 100%;
+    margin-top: auto;
+  }
+  .shop-buy-btn, .shop-refresh-btn {
+    padding: 7px 6px;
+    background: #221635;
+    border: 1px solid var(--panel-border);
+    color: var(--text);
+    font-family: 'VT323', monospace;
+    font-size: 13px;
+    letter-spacing: 0.5px;
+    border-radius: 5px;
+    cursor: pointer;
+    width: 100%;
+  }
+  .shop-buy-btn { border-color: var(--neon-cyan); color: var(--neon-cyan); }
+  .shop-buy-btn:not(:disabled):hover { background: #2e1c4a; }
+  .shop-buy-btn.crystal { border-color: #4fd6ff; color: #4fd6ff; }
+  .shop-buy-btn.crystal .cost { color: #4fd6ff; }
+  .shop-slot.crystal-slot { border-color: rgba(79, 214, 255, 0.4); }
+  .shop-refresh-btn { font-size: 12px; }
+  .shop-refresh-btn:not(:disabled):hover { background: #2e1c4a; }
+  .shop-buy-btn:disabled, .shop-refresh-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .shop-buy-btn .cost, .shop-refresh-btn .cost {
+    color: var(--neon-yellow);
+    margin-left: 2px;
+  }
+  .shop-buy-btn:disabled .cost, .shop-refresh-btn:disabled .cost {
+    color: var(--dim);
+  }
+
   /* Bar */
   #bar-info {
     background: var(--panel);
@@ -2221,6 +2326,7 @@
         <span class="coins" id="hub-coins">💰 0</span>
         <span class="coins" id="hub-nuts">🔩 0</span>
         <span class="coins" id="hub-essence">🔮 0</span>
+        <span class="coins" id="hub-crystals">💎 0</span>
       </div>
       <div class="row">
         <span class="energy" id="hub-energy-text">⚡ 100/100</span>
@@ -2309,6 +2415,17 @@
       <button class="back-btn-large" data-back>← НАЗАД</button>
     </div>
 
+    <!-- Магазин -->
+    <div id="hub-shop" class="hub-screen">
+      <div class="sub-header">
+        <span class="title">🛒 МАГАЗИН</span>
+      </div>
+      <div class="sub-body">
+        <div id="shop-content"></div>
+      </div>
+      <button class="back-btn-large" data-back>← НАЗАД</button>
+    </div>
+
     <!-- Гардероб -->
     <div id="hub-wardrobe" class="hub-screen">
       <div class="sub-header">
@@ -2372,6 +2489,7 @@
   <button id="dev-coins">+5000 монет</button>
   <button id="dev-nuts">+20 гаек</button>
   <button id="dev-essence">+50 эссенции</button>
+  <button id="dev-crystals">+20 кристаллов</button>
   <button id="dev-shards">+10 шардов всем скиллам</button>
   <button id="dev-gacha-token">+1 жетон гачи</button>
   <button id="dev-epic-item">+1 случайный эпик</button>

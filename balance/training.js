@@ -3,9 +3,9 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 export const ENERGY = {
-  maxCap: 100,
-  startAmount: 100,
-  recoverPerSec: 1 / 6,         // полная батарейка за ~10 мин
+  maxCap: 50,                   // фактический cap идёт из trailer T1; это значение для согласованности
+  startAmount: 50,              // стартовая батарея = trailer T1 (новый игрок начинает с 50⚡)
+  recoverPerSec: 10 / 60,       // 10⚡/мин база (T1 couch); полная T1-батарея за 5 мин
   trainerEntryCost: 0,          // вход свободный — fatigue per-stat сама гоняет ротировать
   // Сессия не ограничена количеством тапов — заканчивается по нехватке энергии
   // или вручную. Зоны зелёная/жёлтая сужаются (усталость мышц).
@@ -61,14 +61,13 @@ export const FATIGUE = {
   yellowAccel:      0.5,
 
   // Восстановление: тап = +1 fatigue, убывает со временем.
-  // 60/час = синхронно с регеном энергии (полная батарейка за 10 мин).
-  // Холодильник в home.js работает как множитель к этой базе.
+  // 60/час = 1/мин база (T1 shower). Полное восстановление fatigue 30 ≈ 30 мин на T1,
+  // ~12 мин на T5 shower. Pure design: refund отключён, fatigue регенирует только idle.
   recoverPerHour: 60,
 
-  // Дискретный сброс fatigue при зачистке локации (на все три тренажёра).
-  // Масштабируется текущим темпом холодильника: refund = base × fridgeMult.
-  // T1 холод → −3, T5 холод → −7.5. Не полный сброс — нужно ещё пассивный реген.
-  locationClearRefund: 3,
+  // Pure design: бой больше не сбрасывает fatigue. Отдых только через idle время.
+  // Это делает усталость реальным лимитом прогрессии.
+  locationClearRefund: 0,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -97,8 +96,8 @@ export const TRAINERS = {
 export const TRAINER_TIERS = [
   { tier: 0, statMultiplier: 0,   levelCap: 0,  xpPerTap: 0,   fatigueResist: 1.0,  upgradeCost: 0 },
   { tier: 1, statMultiplier: 1.0, levelCap: 5,  xpPerTap: 3,   fatigueResist: 1.0,  upgradeCost: 100 },
-  { tier: 2, statMultiplier: 1.5, levelCap: 10, xpPerTap: 10,  fatigueResist: 0.85, upgradeCost: 500 },
-  { tier: 3, statMultiplier: 2.0, levelCap: 15, xpPerTap: 30,  fatigueResist: 0.70, upgradeCost: 5000 },
+  { tier: 2, statMultiplier: 1.5, levelCap: 10, xpPerTap: 10,  fatigueResist: 0.85, upgradeCost: 1000 },
+  { tier: 3, statMultiplier: 2.0, levelCap: 15, xpPerTap: 30,  fatigueResist: 0.70, upgradeCost: 6000 },
   { tier: 4, statMultiplier: 2.5, levelCap: 20, xpPerTap: 90,  fatigueResist: 0.55, upgradeCost: 15000 },
   { tier: 5, statMultiplier: 3.0, levelCap: 25, xpPerTap: 270, fatigueResist: 0.40, upgradeCost: 30000 },
 ];

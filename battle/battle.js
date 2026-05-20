@@ -496,7 +496,13 @@ export function activateSkill(hero, skillId, world) {
 
   switch (def.targetType) {
     case 'single': {
-      const target = findNearestAliveEnemy(arena, hero.x, hero.y);
+      // Бьём sticky-таргет автоатак (куда хиро уже бил), fallback на ближайшего.
+      // Предсказуемо для игрока + комбо стакаются на одной цели.
+      let target = null;
+      if (hero.currentTargetId != null) {
+        target = arena.enemies.find(e => e.id === hero.currentTargetId && e.alive) || null;
+      }
+      if (!target) target = findNearestAliveEnemy(arena, hero.x, hero.y);
       if (!target) return false;
       // Снапшоты тегов: damage-бонусы применяет сам dealDamage по def, а здесь читаются
       // для логирования и универсального combo-консумера (флаг comboTaggedBonus ниже).

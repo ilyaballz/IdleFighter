@@ -30,15 +30,15 @@ export const BAR_BASE = {
 // темплейта врага, читаются battle.js / arena.js.
 export const BAR_OPPONENTS = [
   {
-    id: 'borya', name: 'Боря', icon: '💰', color: '#ffd23f',
-    hpMult: 1.5, dmgMult: 0.7,
-    rewardType: 'coins',
-  },
-  {
     id: 'vitya', name: 'Витя', icon: '🥊', color: '#ff7e3e',
     hpMult: 1.0, dmgMult: 1.0,
     enrageAt: 0.3, enrageDmgMult: 2.0, enrageAtkSpdMult: 1.0, enrageDurationSec: 999,
     rewardType: 'item',
+  },
+  {
+    id: 'borya', name: 'Боря', icon: '💰', color: '#ffd23f',
+    hpMult: 1.5, dmgMult: 0.7,
+    rewardType: 'coins',
   },
   {
     id: 'zhorik', name: 'Жорик', icon: '✦', color: '#4fd6ff',
@@ -83,6 +83,12 @@ export function rollScratchTier() {
 
 // 10% доп. ролл стикера на 2-match и 3-match. На 1-match — никогда.
 export const SCRATCH_STICKER_BONUS_CHANCE = 0.10;
+
+// 💎 Кристалльный jackpot со скретч-карты:
+//   3-match → +SCRATCH_CRYSTAL_JACKPOT кристаллов гарантированно (≈5% всех боёв)
+//   2-match → +1💎 с шансом SCRATCH_CRYSTAL_2MATCH_CHANCE (≈6% всех боёв)
+export const SCRATCH_CRYSTAL_JACKPOT = 5;
+export const SCRATCH_CRYSTAL_2MATCH_CHANCE = 0.20;
 
 // ───────── Награды (по rewardType + tier) ─────────
 // Каждая ветка возвращает дескриптор награды: { kind, amount?, rarity?, ... } + label для UI.

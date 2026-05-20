@@ -82,12 +82,19 @@ export function tryDropStickerForKill(_enemy) {
 // Используется внешними источниками (скретч-карты бара, магазин, дев-панель и т.п.).
 // Возвращает stickerId или null если все 25 уже собраны.
 export function dropRandomMissingSticker() {
-  const missing = ALL_STICKER_IDS.filter(id => !stickersState.unlocked.has(id));
-  if (missing.length === 0) return null;
-  const id = missing[Math.floor(Math.random() * missing.length)];
+  const id = pickRandomMissingStickerId();
+  if (!id) return null;
   stickersState.unlocked.add(id);
   rebuildBonusCache();
   return id;
+}
+
+// Выбирает случайный недостающий стикер БЕЗ выдачи — для preview-слотов (магазин).
+// Возвращает stickerId или null если все 25 собраны.
+export function pickRandomMissingStickerId() {
+  const missing = ALL_STICKER_IDS.filter(id => !stickersState.unlocked.has(id));
+  if (missing.length === 0) return null;
+  return missing[Math.floor(Math.random() * missing.length)];
 }
 
 // Сейв-интеграция.

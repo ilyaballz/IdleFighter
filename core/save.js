@@ -11,6 +11,7 @@ import { inventoryState, getNextItemId, setNextItemId } from './inventory.js';
 import { hubState } from '../hub/state.js';
 import { barState } from './bar_state.js';
 import { serializeStickers, deserializeStickers } from './stickers_state.js';
+import { serializeShop, applyShopFromSave } from './shop_state.js';
 import * as ftue from './ftue.js';
 
 const STORAGE_KEY = 'streetbrawler_save_v1';
@@ -26,9 +27,10 @@ export function saveGame() {
     version: SAVE_VERSION,
     timestamp: Date.now(),
     world: {
-      coins:   worldRef.coins   | 0,
-      nuts:    worldRef.nuts    | 0,
-      essence: worldRef.essence | 0,
+      coins:    worldRef.coins    | 0,
+      nuts:     worldRef.nuts     | 0,
+      essence:  worldRef.essence  | 0,
+      crystals: worldRef.crystals | 0,
     },
     hero: {
       levels: { ...heroState.levels },
@@ -71,6 +73,7 @@ export function saveGame() {
       winsOnCurrent: barState.winsOnCurrent,
     },
     stickers: serializeStickers(),
+    shop: serializeShop(),
     ftue: ftue.serialize(),
   };
   try {
@@ -92,9 +95,10 @@ export function loadGame() {
   if (data?.version !== SAVE_VERSION) return false;
 
   // World
-  worldRef.coins   = data.world?.coins   ?? 0;
-  worldRef.nuts    = data.world?.nuts    ?? 0;
-  worldRef.essence = data.world?.essence ?? 0;
+  worldRef.coins    = data.world?.coins    ?? 0;
+  worldRef.nuts     = data.world?.nuts     ?? 0;
+  worldRef.essence  = data.world?.essence  ?? 0;
+  worldRef.crystals = data.world?.crystals ?? 0;
 
   // Hero
   for (const s of ['strength', 'toughness', 'agility']) {
@@ -111,10 +115,14 @@ export function loadGame() {
     if (typeof tr?.lifetimeTaps === 'number') hubState.trainers[s].lifetimeTaps = tr.lifetimeTaps;
   }
   if (data.hub?.home) {
-    // Back-compat: mirror → coffee (старое имя постройки до переименования в Кофеварку).
+    // Back-compat:
+    //   mirror → coffee (старое имя до переименования в Кофеварку)
+    //   fridge → shower (старое имя до переименования в Душ)
     const h = { ...data.hub.home };
     if (h.mirror != null && h.coffee == null) { h.coffee = h.mirror; }
+    if (h.fridge != null && h.shower == null) { h.shower = h.fridge; }
     delete h.mirror;
+    delete h.fridge;
     Object.assign(hubState.home, h);
   }
 
@@ -147,6 +155,9 @@ export function loadGame() {
 
   // Stickers — back-compat: старые сейвы без блока → коллекция пустая.
   deserializeStickers(data.stickers);
+
+  // Shop — back-compat: старые сейвы без блока → slots пустые, regen при первом checkDailyReset.
+  if (data.shop) applyShopFromSave(data.shop);
 
   // FTUE — back-compat: старые сейвы без блока → reset, флаги остаются дефолтные false.
   if (data.ftue) ftue.deserialize(data.ftue);

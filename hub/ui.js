@@ -39,6 +39,12 @@ import {
 import {
   isStickerUnlocked, isSetComplete, getUnlockedStickers,
 } from '../core/stickers_state.js';
+import {
+  SHOP_STICKER_SLOT_ID, SHOP_EQUIPMENT_SLOT_ID, SHOP_SHARDS_SLOT_ID,
+} from '../balance/shop.js';
+import {
+  shopState, checkDailyReset, getNextResetSec, getStickerRefreshPrice,
+} from '../core/shop_state.js';
 import { logEvent } from '../core/logger.js';
 import { hideDefeat, hideVictory } from '../battle/ui.js';
 import * as ftue from '../core/ftue.js';
@@ -89,7 +95,7 @@ export function showHubScene() {
 
 // ───────── Sub-screens ─────────
 
-const HUB_SCREENS = ['home', 'gym', 'arsenal', 'wardrobe', 'house', 'bar', 'stickers'];
+const HUB_SCREENS = ['home', 'gym', 'arsenal', 'wardrobe', 'house', 'bar', 'stickers', 'shop'];
 let currentHubScreen = 'home';
 
 export function showHubScreen(name) {
@@ -134,6 +140,9 @@ function refreshCurrentHubScreen() {
     case 'stickers':
       renderStickers();
       break;
+    case 'shop':
+      renderShop();
+      break;
   }
 }
 
@@ -163,6 +172,8 @@ export function renderHub() {
   if (nutsEl) nutsEl.textContent = `🔩 ${currentNuts()}`;
   const essEl = $('hub-essence');
   if (essEl) essEl.textContent = `🔮 ${currentEssence()}`;
+  const cryEl = $('hub-crystals');
+  if (cryEl) cryEl.textContent = `💎 ${currentCrystals()}`;
   const eMax = getEffectiveEnergyMax();
   const eCur = Math.floor(hubState.energy);
   $('hub-energy-text').textContent = `⚡ ${eCur} / ${eMax}`;
@@ -227,6 +238,8 @@ function renderBuildings() {
       action: hasWardrobeAction() },
     { id: 'stickers', icon: '🏷', name: 'СТИКЕРЫ',
       hint: `${unlockedCount}/25 наклеек` },
+    { id: 'shop', icon: '🛒', name: 'МАГАЗИН',
+      hint: shopHubHint() },
   ];
 
   grid.innerHTML = buildings.map(b => {
@@ -285,6 +298,10 @@ function currentNuts() { return nutsAccessor(); }
 let essenceAccessor = () => 0;
 export function bindEssenceAccessor(getEssenceFn) { essenceAccessor = getEssenceFn; }
 function currentEssence() { return essenceAccessor(); }
+
+let crystalsAccessor = () => 0;
+export function bindCrystalsAccessor(getCrystalsFn) { crystalsAccessor = getCrystalsFn; }
+function currentCrystals() { return crystalsAccessor(); }
 
 // ───────── Тренажёры ─────────
 
@@ -384,6 +401,8 @@ let onHomeUpgrade   = () => {};
 let onBarFight      = () => {};
 let onItemUpgrade   = () => false;
 let onItemSalvage   = () => false;
+let onShopBuy             = () => false;
+let onShopRefreshSticker  = () => false;
 export function bindHubActions(handlers) {
   if (handlers.onTrainerUpgrade) onTrainerUpgrade = handlers.onTrainerUpgrade;
   if (handlers.onTrainerStart)   onTrainerStart   = handlers.onTrainerStart;
@@ -391,6 +410,8 @@ export function bindHubActions(handlers) {
   if (handlers.onBarFight)       onBarFight       = handlers.onBarFight;
   if (handlers.onItemUpgrade)    onItemUpgrade    = handlers.onItemUpgrade;
   if (handlers.onItemSalvage)    onItemSalvage    = handlers.onItemSalvage;
+  if (handlers.onShopBuy)            onShopBuy            = handlers.onShopBuy;
+  if (handlers.onShopRefreshSticker) onShopRefreshSticker = handlers.onShopRefreshSticker;
 }
 
 // ───────── Дом (апгрейды) ─────────
@@ -404,7 +425,7 @@ function formatHomeValue(buildingId, value, tier) {
     const sec = cap / (baseRecover * value);
     return `${value}× (${Math.round(sec / 60)}мин до full)`;
   }
-  if (buildingId === 'fridge') return `${value}× (${Math.round(value * FATIGUE.recoverPerHour)}/час)`;
+  if (buildingId === 'shower') return `${value}× (${Math.round(value * FATIGUE.recoverPerHour)}/час)`;
   if (buildingId === 'trailer') return `${value}⚡`;
   if (buildingId === 'coffee') {
     const ttlBonus = HOME_UPGRADES.coffee.tiers[Math.max(0, (tier || 1) - 1)].ttlBonus || 0;
@@ -664,6 +685,164 @@ export function showStickerToast(stickerId) {
   void el.offsetWidth;
   el.classList.add('show');
   stickerToastTimer = setTimeout(() => el.classList.remove('show'), 2400);
+}
+
+// ───────── Магазин ─────────
+
+function formatResetCountdown(sec) {
+  if (sec == null) return '—';
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (h > 0) return `${h}ч ${m}м`;
+  if (m > 0) return `${m}м`;
+  return `${sec}с`;
+}
+
+function shopHubHint() {
+  if (shopState.slots.length === 0) return 'новые товары';
+  const left = shopState.slots.filter(s => s.itemId != null).length;
+  return left > 0 ? `${left} тов.` : `обнов ${formatResetCountdown(getNextResetSec())}`;
+}
+
+// Метаданные фикс-слотов для UI (иконка + label-формат от qty).
+const FIXED_SLOT_META = {
+  energy:  { icon: '⚡',  label: (qty) => `+${qty}⚡` },
+  steroid: { icon: '💊', label: (qty) => `−${qty} усталости` },
+  nuts:    { icon: '🔩', label: (qty) => `+${qty}🔩` },
+};
+
+// Сколько у игрока сейчас выбранной валюты — для disabled-проверки кнопки.
+function walletBalance(currency) {
+  return currency === 'crystals' ? currentCrystals() : currentCoins();
+}
+
+// Иконка валюты в кнопке цены.
+function currencyIcon(currency) {
+  return currency === 'crystals' ? '💎' : '💰';
+}
+
+function shopSlotEmptyHtml(idx, resetText) {
+  // Только ротационные слоты [3..5] могут стать sold-out. Фикс не уходят в empty.
+  const icons = { 3: '✦', 4: '🏷', 5: '🎁' };
+  const labels = {
+    3: 'скилл недоступен',  // если loadout пустой
+    4: 'нет доступных',     // коллекция стикеров полная
+    5: 'продано',
+  };
+  return `
+    <div class="shop-slot empty">
+      <div class="shop-slot-icon">${icons[idx] || '✓'}</div>
+      <div class="shop-slot-label">${labels[idx] || 'продано'}</div>
+      <div class="shop-slot-sub">обнов через ${resetText}</div>
+    </div>`;
+}
+
+// Универсальная HTML-строка для кнопки покупки. Учитывает валюту слота (💰/💎).
+function buyBtnHtml(slot, idx) {
+  const cur = slot.currency || 'coins';
+  const canBuy = walletBalance(cur) >= slot.price;
+  const cls = cur === 'crystals' ? 'shop-buy-btn crystal' : 'shop-buy-btn';
+  return `
+    <button class="${cls}" data-slot="${idx}" ${canBuy ? '' : 'disabled'}>
+      КУПИТЬ <span class="cost">${slot.price}${currencyIcon(cur)}</span>
+    </button>`;
+}
+
+function shopSlotShardsHtml(slot, idx) {
+  const skill = SKILLS[slot.skillId];
+  const skillIcon = SKILL_ICONS[slot.skillId] || '✦';
+  const skillName = skill?.name || slot.skillId;
+  return `
+    <div class="shop-slot rotation">
+      <div class="shop-slot-icon">${skillIcon}</div>
+      <div class="shop-slot-label">+${slot.qty}✦ шардов</div>
+      <div class="shop-slot-sub">${skillName}</div>
+      <div class="shop-slot-actions">${buyBtnHtml(slot, idx)}</div>
+    </div>`;
+}
+
+function shopSlotStickerHtml(slot, idx) {
+  const s = STICKERS[slot.stickerId];
+  const refreshCost = getStickerRefreshPrice();
+  const canRefresh = currentCoins() >= refreshCost;
+  return `
+    <div class="shop-slot rotation">
+      <div class="shop-slot-icon">${s?.icon || '🏷'}</div>
+      <div class="shop-slot-label">Стикер</div>
+      <div class="shop-slot-sub">${s?.name || '???'}</div>
+      <div class="shop-slot-actions">
+        ${buyBtnHtml(slot, idx)}
+        <button class="shop-refresh-btn" ${canRefresh ? '' : 'disabled'} title="Сменить стикер">
+          🔄 <span class="cost">${refreshCost}💰</span>
+        </button>
+      </div>
+    </div>`;
+}
+
+function shopSlotEquipmentHtml(slot, idx) {
+  const item = slot.item;
+  if (!item) return shopSlotEmptyHtml(idx, '—');
+  const r = RARITIES[item.rarity];
+  const slotDef = EQUIPMENT_SLOTS[item.slot];
+  const borderColor = r?.color || '#888';
+  const affixCount = (item.affixes?.length || 0) + 1;
+  return `
+    <div class="shop-slot rotation equipment-slot" style="border-color:${borderColor}">
+      <div class="shop-slot-icon">${slotDef?.icon || '🎁'}</div>
+      <div class="shop-slot-label" style="color:${borderColor}">${(r?.name || item.rarity).toUpperCase()}</div>
+      <div class="shop-slot-sub">${slotDef?.name || item.slot} · ${affixCount} аффикса</div>
+      <div class="shop-slot-primary">${primaryStatHtml(item.primaryAffix, item)}</div>
+      <div class="shop-slot-actions">${buyBtnHtml(slot, idx)}</div>
+    </div>`;
+}
+
+function shopSlotFixedHtml(slot, idx) {
+  const meta = FIXED_SLOT_META[slot.itemId];
+  if (!meta) return '';
+  const isCrystal = slot.currency === 'crystals';
+  return `
+    <div class="shop-slot fixed${isCrystal ? ' crystal-slot' : ''}">
+      <div class="shop-slot-icon">${meta.icon}</div>
+      <div class="shop-slot-label">${meta.label(slot.qty)}</div>
+      <div class="shop-slot-actions">${buyBtnHtml(slot, idx)}</div>
+    </div>`;
+}
+
+function renderShop() {
+  const root = $('shop-content');
+  if (!root) return;
+  // На каждый рендер проверяем — не прошли ли 24ч → авто-обновление ротации.
+  checkDailyReset();
+
+  const resetText = formatResetCountdown(getNextResetSec());
+
+  const slotsHtml = shopState.slots.map((slot, idx) => {
+    if (!slot || !slot.itemId) return shopSlotEmptyHtml(idx, resetText);
+    if (slot.itemId === SHOP_SHARDS_SLOT_ID)    return shopSlotShardsHtml(slot, idx);
+    if (slot.itemId === SHOP_STICKER_SLOT_ID)   return shopSlotStickerHtml(slot, idx);
+    if (slot.itemId === SHOP_EQUIPMENT_SLOT_ID) return shopSlotEquipmentHtml(slot, idx);
+    return shopSlotFixedHtml(slot, idx);
+  }).join('');
+
+  root.innerHTML = `
+    <div class="shop-header">
+      <span class="shop-reset">Ротация через: <b>${resetText}</b></span>
+    </div>
+    <div class="shop-grid">
+      ${slotsHtml}
+    </div>
+  `;
+
+  root.querySelectorAll('.shop-buy-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.slot, 10);
+      if (!Number.isNaN(idx)) onShopBuy(idx);
+    });
+  });
+  const refreshBtn = root.querySelector('.shop-refresh-btn');
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', () => onShopRefreshSticker());
+  }
 }
 
 function renderHouse() {

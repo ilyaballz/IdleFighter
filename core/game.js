@@ -3,12 +3,16 @@
 import { ARENA } from '../balance/visuals.js';
 import { SKILLS } from '../balance/skills.js';
 import { buildLocation, buildBarLocation } from '../battle/arena.js';
-import { arenaNutDrop, arenaEnergyDrop, resetArenaPity } from '../balance/enemies.js';
+import {
+  arenaNutDrop, arenaEnergyDrop, resetArenaPity,
+  CRYSTAL_DROP_CHANCE, CRYSTAL_CHAPTER_BOSS, CHAPTER_BOSS_LOCATIONS,
+} from '../balance/enemies.js';
 import {
   barState, recoverTickets, spendTicket, recordBarWin, getCurrentOpponent,
 } from './bar_state.js';
 import {
   buildBarReward, rollScratchTier, SCRATCH_STICKER_BONUS_CHANCE,
+  SCRATCH_CRYSTAL_JACKPOT, SCRATCH_CRYSTAL_2MATCH_CHANCE,
 } from '../balance/bar.js';
 import {
   createHero, updateBattle, HERO_STATE, activateSkill,
@@ -19,7 +23,8 @@ import {
   bindSkillButtons, updateSkillButtons, showBattleScene,
 } from '../battle/ui.js';
 import {
-  showHubScene, renderHub, bindHubActions, bindCoinsAccessor, bindNutsAccessor, bindEssenceAccessor,
+  showHubScene, renderHub, bindHubActions,
+  bindCoinsAccessor, bindNutsAccessor, bindEssenceAccessor, bindCrystalsAccessor,
   showTapOverlay, hideTapOverlay,
   renderTapStatic, renderTapDynamic, flashTapFeedback, bindTapButton,
   spawnXpFly, startGachaSpin, showStickerToast, showScratchCard, showHubScreen,
@@ -30,7 +35,10 @@ import {
   updateSession as updateHubSession, performTap,
   getEffectiveEnergyMax, tryUpgradeHome,
   bindHeroStatLevelProvider, applyLocationClearFatigueRefund,
+  reduceFatigueAllTrainers,
 } from '../hub/state.js';
+import { BAR } from '../balance/bar.js';
+import { buySlot as shopBuySlot, refreshStickerSlot as shopRefreshSticker } from './shop_state.js';
 import { resetHeroForNewRun, addStatXp, heroState } from './stats_layer.js';
 import * as ftue from './ftue.js';
 import { loadoutState, addGachaToken, addShard, rollShardDropForEnemy } from './loadout.js';
@@ -41,7 +49,7 @@ import {
 } from './inventory.js';
 import { RARITIES, EQUIPMENT_SLOTS } from '../balance/equipment.js';
 import { isBuildingUnlocked } from '../balance/hub.js';
-import { tryDropStickerForKill, getStickerBonus, dropRandomMissingSticker } from './stickers_state.js';
+import { tryDropStickerForKill, getStickerBonus, dropRandomMissingSticker, awardSticker } from './stickers_state.js';
 import { STICKERS } from '../balance/stickers.js';
 import { updateFx, resetFx } from './fx.js';
 
@@ -61,6 +69,7 @@ const world = {
   coins: 0,
   nuts: 0,
   essence: 0,
+  crystals: 0,             // 💎 hard currency (premium time-savers в магазине)
   hero: null,
   location: null,
   camera: { x: 0, y: 0 },
@@ -82,12 +91,26 @@ const world = {
       }
       const nuts = enemy.nutDrop || 0;
       if (nuts > 0) world.nuts += nuts;
+      // Финал главы (L10/20/30/40 boss) — jackpot кристаллов.
+      const locIdx = world.location?.locationIndex || 0;
+      let chapterCrystals = 0;
+      if (CHAPTER_BOSS_LOCATIONS.has(locIdx)) {
+        chapterCrystals = CRYSTAL_CHAPTER_BOSS;
+        world.crystals += chapterCrystals;
+      }
       const parts = [`+${coinReward}💰`];
       if (nuts > 0) parts.push(`+${nuts}🔩`);
       if (reward > 0) parts.push(`+${reward}⚡`);
+      if (chapterCrystals > 0) parts.push(`+${chapterCrystals}💎`);
       logEvent(`БОСС повержен! ${parts.join(' ')}`, 'kill');
+      if (chapterCrystals > 0) logEvent(`💎 ФИНАЛ ГЛАВЫ: +${chapterCrystals} кристаллов!`, 'crit');
     } else {
       logEvent(`${enemy.name} убит (+${coinReward}💰)`, 'kill');
+    }
+    // Дроп кристалла с любого моба (включая боссов сверх chapter-jackpot).
+    if (Math.random() < CRYSTAL_DROP_CHANCE) {
+      world.crystals += 1;
+      logEvent('💎 +1 кристалл!', 'crit');
     }
     const shard = rollShardDropForEnemy(enemy);
     if (shard) logEvent(`+1 шард ${shard.name}`, 'kill');
@@ -128,6 +151,7 @@ const world = {
 bindCoinsAccessor(() => world.coins);
 bindNutsAccessor(() => world.nuts);
 bindEssenceAccessor(() => world.essence);
+bindCrystalsAccessor(() => world.crystals);
 bindWorldForSave(world);
 
 // Загружаем сейв до первого старта боя — статы/инвентарь/локация подхватятся.
@@ -224,8 +248,8 @@ function onLocationVictory() {
   logEvent(`+1 жетон гачи!`, 'crit');
   hubState.currentLocationIndex = cleared + 1;
   const refund = applyLocationClearFatigueRefund();
-  const refundLine = refund > 0 ? `\n🧊 Тренажёры освежены (−${refund.toFixed(1)} усталости)` : '';
-  if (refund > 0) logEvent(`🧊 Свежесть тренажёров: −${refund.toFixed(1)}`, 'kill');
+  const refundLine = refund > 0 ? `\n🚿 Тренажёры освежены (−${refund.toFixed(1)} усталости)` : '';
+  if (refund > 0) logEvent(`🚿 Свежесть тренажёров: −${refund.toFixed(1)}`, 'kill');
   showVictory(`Локация ${cleared} зачищена!\n+1 жетон гачи${refundLine}`);
   logEvent(`=== Локация ${cleared} зачищена ===`, 'kill');
 }
@@ -247,12 +271,12 @@ function onBarVictory() {
   showHubScreen('bar');
   showScratchCard({
     opponent, tier, reward, bonusStickerId,
-    onClaim: () => applyBarReward(reward, bonusStickerId),
+    onClaim: () => applyBarReward(reward, bonusStickerId, tier),
   });
 }
 
 // Начисление награды + advance прогресса. Вызывается из callback'а скретч-карты на «ЗАБРАТЬ».
-function applyBarReward(reward, bonusStickerId) {
+function applyBarReward(reward, bonusStickerId, tier) {
   const opponent = getCurrentOpponent();
   // 1) Сама награда по rewardType
   switch (reward.kind) {
@@ -290,8 +314,10 @@ function applyBarReward(reward, bonusStickerId) {
       break;
     }
     case 'item': {
-      // Бар даёт предметы со скейлом по barLevel (= medals + 1 на момент боя).
-      const item = generateItem(pickRandomSlot(), reward.rarity, barState.medals + 1);
+      // Бар даёт предметы со скейлом по текущей локации игрока (не по barLevel),
+      // чтобы шмот не отставал от основной прогрессии — особенно если игрок пришёл в бар поздно.
+      // barLevel остаётся для статов противников и денежных наград Бори (см. bar.js).
+      const item = generateItem(pickRandomSlot(), reward.rarity, hubState.currentLocationIndex);
       if (item) {
         addItem(item);
         logEvent(`Дроп: [${RARITIES[item.rarity].name}] ${EQUIPMENT_SLOTS[item.slot].name}`, 'crit');
@@ -304,6 +330,14 @@ function applyBarReward(reward, bonusStickerId) {
     const s = STICKERS[bonusStickerId];
     logEvent(`📼 БОНУС-НАКЛЕЙКА: ${s.icon} ${s.name}!`, 'crit');
     showStickerToast(bonusStickerId);
+  }
+  // 2b) Кристальный jackpot: 3-match → +5💎 гарантированно; 2-match → 20% шанс +1💎.
+  let crystalsFromScratch = 0;
+  if (tier === 3) crystalsFromScratch = SCRATCH_CRYSTAL_JACKPOT;
+  else if (tier === 2 && Math.random() < SCRATCH_CRYSTAL_2MATCH_CHANCE) crystalsFromScratch = 1;
+  if (crystalsFromScratch > 0) {
+    world.crystals += crystalsFromScratch;
+    logEvent(`💎 +${crystalsFromScratch} кристалл${crystalsFromScratch > 1 ? 'ов' : ''} (скретч)`, 'crit');
   }
   // 3) Учёт победы + advance противника (если 3/3)
   const advanced = recordBarWin();
@@ -319,6 +353,62 @@ function applyBarReward(reward, bonusStickerId) {
 function pickRandomSlot() {
   const slotIds = Object.keys(EQUIPMENT_SLOTS);
   return slotIds[Math.floor(Math.random() * slotIds.length)];
+}
+
+// Применение покупки из магазина. purchase: { kind, qty?, skillId?, stickerId? }.
+// kind определяет цель эффекта; все необходимые утилиты импортированы выше.
+function applyShopPurchase(purchase) {
+  switch (purchase.kind) {
+    case 'energy': {
+      const before = hubState.energy;
+      hubState.energy = Math.min(getEffectiveEnergyMax(), hubState.energy + purchase.qty);
+      logEvent(`+${Math.round(hubState.energy - before)}⚡ (магазин)`, 'kill');
+      break;
+    }
+    case 'fatigue': {
+      const reduced = reduceFatigueAllTrainers(purchase.qty);
+      logEvent(`💊 −${reduced.toFixed(1)} усталости на тренажёрах`, 'kill');
+      break;
+    }
+    case 'nuts': {
+      world.nuts += purchase.qty;
+      logEvent(`+${purchase.qty}🔩 гаек (магазин)`, 'kill');
+      break;
+    }
+    case 'shards': {
+      const skillId = purchase.skillId;
+      if (skillId && loadoutState.unlocked.includes(skillId)) {
+        addShard(skillId, purchase.qty);
+        const name = SKILLS[skillId]?.name || skillId;
+        logEvent(`+${purchase.qty}✦ шардов (${name})`, 'kill');
+      } else {
+        logEvent('Скилл недоступен — шарды не выданы', 'warn');
+      }
+      break;
+    }
+    case 'equipment': {
+      if (purchase.item) {
+        addItem(purchase.item);
+        const r = purchase.item.rarity;
+        logEvent(`🎁 ${r.toUpperCase()}-шмотка добавлена в гардероб`, 'crit');
+      } else {
+        logEvent('Шмотка не выдана', 'warn');
+      }
+      break;
+    }
+    case 'sticker': {
+      if (purchase.stickerId && awardSticker(purchase.stickerId)) {
+        const s = STICKERS[purchase.stickerId];
+        logEvent(`📼 Стикер из магазина: ${s.icon} ${s.name}`, 'crit');
+        showStickerToast(purchase.stickerId);
+      } else {
+        logEvent('Стикер не выдан (уже есть или невалиден)', 'warn');
+      }
+      break;
+    }
+    default:
+      logEvent(`Неизвестный тип покупки: ${purchase.kind}`, 'warn');
+  }
 }
 
 // ───────── Resize / Camera ─────────
@@ -462,6 +552,42 @@ bindHubActions({
     if (!removeItem(itemId)) return false;
     world.essence += value;
     logEvent(`Распылено: +${value}🔮`, 'kill');
+    return true;
+  },
+  onShopBuy: (index) => {
+    const result = shopBuySlot(index, (cost, currency) => {
+      if (currency === 'crystals') {
+        if (world.crystals < cost) return false;
+        world.crystals -= cost;
+        return true;
+      }
+      if (world.coins < cost) return false;
+      world.coins -= cost;
+      return true;
+    });
+    if (!result.ok) {
+      if (result.reason === 'no_coins')        logEvent('Не хватает монет', 'warn');
+      else if (result.reason === 'no_crystals') logEvent('Не хватает кристаллов', 'warn');
+      else if (result.reason === 'empty')      logEvent('Слот пуст', 'warn');
+      return false;
+    }
+    applyShopPurchase(result.purchase);
+    saveGame();
+    renderHub();
+    return true;
+  },
+  onShopRefreshSticker: () => {
+    const ok = shopRefreshSticker((cost, _currency) => {
+      if (world.coins < cost) return false;
+      world.coins -= cost;
+      return true;
+    });
+    if (!ok) {
+      logEvent('Не хватает монет на обновление', 'warn');
+      return false;
+    }
+    saveGame();
+    renderHub();
     return true;
   },
 });

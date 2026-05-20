@@ -95,11 +95,21 @@ export const BOSS_BASE = {
   baseCoinDrop: 50,
   shardDropChance: 1.0,
   equipmentDropChance: 1.0,
-  energyReward: 30,            // +⚡ в хабе при убийстве — гарантирует апгрейд после локации
+  energyReward: 0,             // Pure design: бой не даёт энергию, восстановление только idle
   color: '#e63946',
   name: 'Босс',
   // damageMultiplier теперь живёт в BOSS_DAMAGE_CURVE (по умолчанию плоский ×2.0).
 };
+
+// Кристаллы (💎 hard currency) — premium time-savers в магазине. Источники см. core/game.js:
+//   1) Дроп с любого моба: CRYSTAL_DROP_CHANCE
+//   2) Финал главы (boss на L10/L20/L30/L40): CRYSTAL_CHAPTER_BOSS
+//   3) Скретч-карта бара: см. balance/bar.js
+export const CRYSTAL_DROP_CHANCE = 0.005;   // 0.5% базовый шанс с моба → +1💎
+export const CRYSTAL_CHAPTER_BOSS = 5;      // jackpot за финал главы (L10/20/30/40)
+
+// На какой локации заканчивается каждая глава (boss этой локации = chapter boss).
+export const CHAPTER_BOSS_LOCATIONS = new Set([10, 20, 30, 40]);
 
 export const SCALING = {
   perWaveMultiplier: 1.05,    // ~+5% за арену внутри локации (общий для всех)
@@ -179,6 +189,23 @@ export const ENEMY_DAMAGE_CURVE = {
   startLocation: 1,
   startMult:     1.0,
   growthRate:    1.22,
+};
+
+// Доп-сложность поверх ENEMY_HP/DAMAGE_CURVE — синхронизирует силу врагов с power-spike'ами
+// игрока по мере прогрессии. До L10 практически нейтральна (×1.0-1.11), с L11 плавно
+// нарастает к ×3.0 на L40. По MC-симу полный сет игрока хронологически:
+//   L16 — full rare,  L23 — full epic,  L28+ — full legendary.
+// Кривая back-loaded (curve=2.0): растёт там же, где у игрока накапливается мощь.
+//
+// Зеркалит подход boss-кривых (там BOSS_HP_CURVE множит ENEMY_HP_CURVE). Применяется
+// в enemyHp/DamageMultForLocation → автоматически попадает на regular/elite/boss.
+export const ENEMY_DIFFICULTY_CURVE = {
+  mode: 'power',
+  startLocation: 1,
+  endLocation:   40,            // полный охват 4 глав × 10 локаций (см. project_chapters_plan)
+  startMult:     1.0,
+  endMult:       3.0,
+  curve:         2.0,
 };
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -286,32 +313,23 @@ export function bossNutDrop(locationIndex) {
   return Math.max(1, total - nutDropArenaCount(locationIndex));
 }
 
-// Бонус энергии за зачищенную арену (не-боссовую). Часть от 30 ⚡ финала локации.
-const ARENA_ENERGY_DROP_INTERVAL = 3;
-const ARENA_ENERGY_DROP_VALUE = 2;
+// Pure design: бой не даёт энергию (ни на аренах, ни на боссе).
+// Восстановление энергии — только через idle (couch regen rate × time).
+// Функции оставлены как заглушки для совместимости — возвращают 0.
 
-export function arenaEnergyDrop(locationIndex, arenaIndex) {
-  if (locationIndex <= 2) return 0;
-  const arenas = arenasForLocation(locationIndex);
-  if (arenaIndex === arenas) return 0;
-  if (arenaIndex % ARENA_ENERGY_DROP_INTERVAL !== 0) return 0;
-  return ARENA_ENERGY_DROP_VALUE;
+export function arenaEnergyDrop(_locationIndex, _arenaIndex) {
+  return 0;
 }
 
-// Бонус энергии с босса — total 30 минус арена-распределение.
-export function bossEnergyDrop(locationIndex) {
-  if (locationIndex <= 2) return 30;
-  const arenas = arenasForLocation(locationIndex);
-  const nonBoss = Math.max(0, arenas - 1);
-  const arenaTotal = Math.floor(nonBoss / ARENA_ENERGY_DROP_INTERVAL) * ARENA_ENERGY_DROP_VALUE;
-  return Math.max(0, 30 - arenaTotal);
+export function bossEnergyDrop(_locationIndex) {
+  return 0;
 }
 
 export function enemyHpMultForLocation(loc) {
-  return evaluateCurve(ENEMY_HP_CURVE, loc);
+  return evaluateCurve(ENEMY_HP_CURVE, loc) * evaluateCurve(ENEMY_DIFFICULTY_CURVE, loc);
 }
 export function enemyDamageMultForLocation(loc) {
-  return evaluateCurve(ENEMY_DAMAGE_CURVE, loc);
+  return evaluateCurve(ENEMY_DAMAGE_CURVE, loc) * evaluateCurve(ENEMY_DIFFICULTY_CURVE, loc);
 }
 export function bossHpMultiplierForLocation(loc) {
   if (loc <= 1) return 1; // L1 хардкоднут отдельно

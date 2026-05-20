@@ -74,6 +74,11 @@ export function bindDevPanel(ctx) {
     ctx.world.essence = (ctx.world.essence || 0) + 50;
     refreshIfHub();
   });
+  const devCrystalsBtn = $('dev-crystals');
+  if (devCrystalsBtn) devCrystalsBtn.addEventListener('click', () => {
+    ctx.world.crystals = (ctx.world.crystals || 0) + 20;
+    refreshIfHub();
+  });
   $('dev-shards').addEventListener('click', () => {
     for (const id of Object.keys(SKILLS)) {
       if (loadoutState.unlocked.includes(id)) addShard(id, 10);

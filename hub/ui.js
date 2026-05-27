@@ -19,6 +19,7 @@ import { BAR, BAR_OPPONENTS, previewRewardLabel, scratchTargetIcon } from '../ba
 import { barState, getNextTicketSec, getCurrentOpponent } from '../core/bar_state.js';
 import {
   EQUIPMENT_SLOTS, RARITIES, getPrimaryUpgradeMultiplier,
+  LEGENDARY_UNIQUE_AFFIXES,
 } from '../balance/equipment.js';
 import {
   inventoryState, equipItem, unequipSlot,
@@ -28,7 +29,7 @@ import {
 } from '../core/inventory.js';
 import {
   SKILL_ICONS, SKILL_SHORT_NAMES,
-  describeSkillChips, describeSkillSynergies, synergyTone,
+  describeSkillChips, describeSkillSynergies, synergyTone, describeL10Perk,
 } from '../core/skill_meta.js';
 import {
   TRAINER_MILESTONES, reachedMilestones, nextMilestone,
@@ -992,6 +993,16 @@ function renderSkillDetails() {
     <div class="synergy-pill ${synergyTone(text)}">${text}</div>
   `).join('');
 
+  // L10-перк: рендерим всегда — закрытый («Откроется на ур.10») или открытый (золотой ★).
+  // Визуальная подсказка стимулирует докачивать скилл до max.
+  const l10 = describeL10Perk(id);
+  const l10Html = l10
+    ? `<div class="l10-perk ${l10.unlocked ? 'unlocked' : 'locked'}">
+         <span class="l10-badge">★ L10</span>
+         <span class="l10-text">${l10.text}</span>
+       </div>`
+    : '';
+
   root.className = 'skill-card' + (equipped ? ' equipped' : '') + (locked ? ' locked' : '');
   root.style.cursor = 'default';
   root.innerHTML = `
@@ -1004,6 +1015,7 @@ function renderSkillDetails() {
     </div>
     ${chips.length > 0 ? `<div class="stat-chips">${chipsHtml}</div>` : ''}
     ${synergies.length > 0 ? `<div class="synergy-pills">${pillsHtml}</div>` : ''}
+    ${l10Html}
     ${locked
       ? `<div class="locked-note">Выпадает из гачи — крути жетоны, чтобы открыть.</div>`
       : `
@@ -1388,6 +1400,20 @@ function renderItemCard(item, isEquipped) {
     ? `<div class="affix-line">${item.affixes.map(affixPillHtml).join('')}</div>`
     : '';
 
+  // Уникальный аффикс — только у легендарок. Выделен сильнее secondary: цвет редкости,
+  // полоса слева, фоновая заливка, подпись «УНИКАЛЬНЫЙ».
+  const uniqueDef = item.uniqueAffix ? LEGENDARY_UNIQUE_AFFIXES[item.uniqueAffix.type] : null;
+  const uniqueHtml = uniqueDef
+    ? `<div class="affix-unique" style="--unique-color:${r.color}">
+         <div class="affix-unique-label">УНИКАЛЬНЫЙ</div>
+         <div class="affix-unique-body">
+           <span class="affix-unique-icon">${uniqueDef.icon}</span>
+           <span class="affix-unique-name">${uniqueDef.name}</span>
+           <span class="affix-unique-desc">${uniqueDef.description}</span>
+         </div>
+       </div>`
+    : '';
+
   const upCost = getItemUpgradeCost(item);
   const canAffordUp = upCost != null && currentEssence() >= upCost;
   const upBtnHtml = atMax
@@ -1418,6 +1444,7 @@ function renderItemCard(item, isEquipped) {
       <span class="icon">${slot.icon}</span>${slot.name}
       ${primaryStatHtml(item.primaryAffix, item)}
     </div>
+    ${uniqueHtml}
     ${affixesHtml}
     <div class="item-actions">
       ${equipBtnHtml}

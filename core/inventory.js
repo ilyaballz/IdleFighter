@@ -6,6 +6,7 @@ import {
   bossRarityWeights, eliteRarityWeights, regularRarityWeights,
   SALVAGE_VALUE, MAX_UPGRADE_LEVEL_BY_RARITY, UPGRADE_LEVEL_COSTS,
   getAffixValueMult, roundAffixValue,
+  LEGENDARY_UNIQUE_TYPES,
 } from '../balance/equipment.js';
 import { ENEMY_BASE, ELITE_BASE, BOSS_BASE } from '../balance/enemies.js';
 
@@ -52,6 +53,16 @@ export function generateItem(slotId, rarityId, locationLevel = 1) {
     });
   }
 
+  // Уникальный аффикс — у легендарок и мифик-предметов, ровно 1 случайный тип из пула.
+  // Эффект применяется в battle.js (см. applyAutoAttackUniques). Mythic переиспользует
+  // тот же pool — но base value secondary affixes у мифика выше (через weight=4.0),
+  // поэтому суммарный эффект unique тоже сильнее.
+  let uniqueAffix = null;
+  if ((rarityId === 'legendary' || rarityId === 'mythic') && LEGENDARY_UNIQUE_TYPES.length > 0) {
+    const pick = LEGENDARY_UNIQUE_TYPES[Math.floor(Math.random() * LEGENDARY_UNIQUE_TYPES.length)];
+    uniqueAffix = { type: pick };
+  }
+
   return {
     id: `item_${nextItemId++}`,
     slot: slotId,
@@ -59,6 +70,7 @@ export function generateItem(slotId, rarityId, locationLevel = 1) {
     upgradeLevel: 0,
     primaryAffix: { type: slot.primaryStat, value: primaryValue },
     affixes,
+    uniqueAffix,
   };
 }
 
@@ -137,6 +149,15 @@ export function getEquippedItemForSlot(slotId) {
 export function getEquippedItems() {
   return Object.values(inventoryState.equipped)
     .map(id => id ? findItem(id) : null)
+    .filter(Boolean);
+}
+
+// Уникальные аффиксы с надетых легендарок — массив { type } (params читаются из
+// LEGENDARY_UNIQUE_AFFIXES в battle.js при триггере). Дубликаты типа возможны
+// (две легендарки с bleed = два независимых ролла на хит).
+export function getEquippedUniqueAffixes() {
+  return getEquippedItems()
+    .map(it => it.uniqueAffix)
     .filter(Boolean);
 }
 

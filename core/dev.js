@@ -158,9 +158,8 @@ export function bindDevPanel(ctx) {
 }
 
 function runSimulator() {
-  // Диапазон под текущий FINAL_LOCATION=20. При расширении до 40 (главы 3-4) — обновить.
-  const reports = compareScenarios([buildCurrentScenario()], 1, 20);
-  reports.push(runProgressionRange(1, 20));
+  const reports = compareScenarios([buildCurrentScenario()], 1, 40);
+  reports.push(runProgressionRange(1, 40));
   renderSimReport(reports);
   $('sim-modal').classList.add('show');
 }

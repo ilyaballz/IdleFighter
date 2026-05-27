@@ -281,6 +281,50 @@ export function compareScenarios(scenarios, fromLoc = 1, toLoc = 15) {
   return scenarios.map(s => runScenarioRange(s, fromLoc, toLoc));
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// CALIBRATION_SNAPSHOTS — реальные точки, замеренные у игрока в игре.
+// Используются для sanity-check sim'ового прогрессионного билда: после
+// прогона runProgressionRange(L, L) сравни player stats с реальной точкой.
+// Если сильно расходятся — sim'овая модель нуждается в обновлении.
+//
+// Формат: { [locationLevel]: { realHp, realDmg, levels, tier, note } }
+// ═══════════════════════════════════════════════════════════════════════════
+export const CALIBRATION_SNAPSHOTS = {
+  10: {
+    realHp: 200, realDmg: 50,
+    levels: { strength: 6, toughness: 5, agility: 4 },
+    tier: 1,
+    note: 'Барели прошёл L10 wall с ~5% hp left (sim показывал ✓24% → реал ✓5%, дельта ~19pp)',
+  },
+  20: {
+    realHp: 1200, realDmg: 100,
+    levels: { strength: 13, toughness: 12, agility: 8 },
+    tier: 2,
+    note: 'Прошёл L20. Эквип тяжелее sim-модели (eq_hp ~860 vs sim ~105). Δhp −65% (sim ниже реала).',
+  },
+  26: {
+    realHp: 1000, realDmg: 200,
+    levels: { strength: 22, toughness: 18, agility: 16 },
+    tier: 3,
+    note: 'L26. eq_hp ~360, eq_dmg ~124 (видимо заменил toughness-эквип на damage). Δhp +110% (sim уже ВЫШЕ реала!). Δlevels: real 56 vs sim 40 — sim недоучитывает темп прокачки на T3 (xpPerTap=30).',
+  },
+  30: {
+    realHp: 2200, realDmg: 230,
+    levels: { strength: 22, toughness: 20, agility: 20 },
+    tier: 3,
+    coinsReserve: 50000,
+    wallOutcome: 'passed with ~60% hp left (sim predicted ✓40% — sim близко). Не «барели», но не легко',
+    postSnapshot: { hp: 2000, dmg: 285 },   // snapshot после: купил T4 во время гл.3 (dmg +55)
+    note: 'L30. Hp ×2 за 4 локи — легендарка + 2 шмотки с +hp%. Wall комфортный (~60% hp left), цель 5-15% → wall повышен до 1.2, planted для playtest. T4 куплен (T3→T4 mid-chapter).',
+  },
+  33: {
+    realHp: 3100, realDmg: 500,
+    attackSpeed: 4.0,    // на 80% от cap 5.0 — min-max damage build
+    tier: 4,   // предположение, уточнить
+    note: 'L33. MIN-MAX damage build: auto-DPS 2000+, effDps ~3500-4000 (sim предсказывал 2761). Эквип доминирует тренажёры (eq_hp 2.5×stat, eq_dmg 3.9×stat). Single targets melts even with ×2 hp bump. Системная заметка: возможно нужны ELITE/HEAVY ×3-4 или damage resistance на singles.',
+  },
+};
+
 // ───────── Сценарий «естественной прогрессии» ─────────
 // Для каждой локации строит снапшот, который должен быть у среднего игрока
 // к моменту попытки этой локации (статы накапливаются по +2 уровня за лок,
@@ -332,20 +376,27 @@ function generateAverageItem(slotId, rarityId, locationLevel = 1) {
 }
 
 // Допущение о тире тренажёра у среднего игрока к моменту попытки локации.
-// Растянуто под 20 локаций (главы 1-2). T5 — к концу главы 1 / середине главы 2.
+// Калибровка от реального снепа: на L10 игрок ещё T1, 6/5/4 (15 стат-уровней).
+// Тиер-ап привязан к началу следующей главы — игрок копит монеты к финалу главы
+// и покупает next tier на soft-entry лок (L11/L21/L31).
 function progressionTrainerTier(loc) {
-  if (loc <= 1)  return 1;
-  if (loc <= 4)  return 2;
-  if (loc <= 8)  return 3;
-  if (loc <= 13) return 4;
-  return 5;
+  if (loc <= 10) return 1;
+  if (loc <= 20) return 2;
+  if (loc <= 30) return 3;
+  return 4;
 }
+
+// Темп прокачки — стат-уровней за локу (суммарно по 3 тренажёрам).
+// Откалиброван по снепшоту: L10 → 15 уровней (6/5/4). Дальше линейно:
+//   L20 ≈ 30, L30 ≈ 45, L40 ≈ 60.
+// При смене тира всё накопленное получает retroactive ×mult — так и работает реальная игра.
+const PROGRESSION_STAT_LEVELS_PER_LOC = 1.6;
 
 function buildProgressionLevels(targetLocationLevel) {
   const tier = progressionTrainerTier(targetLocationLevel);
   const cap = TRAINER_TIERS[tier].levelCap;
   const levels = { strength: 1, toughness: 1, agility: 1 };
-  const totalAdded = (targetLocationLevel - 1) * 2;
+  const totalAdded = Math.round((targetLocationLevel - 1) * PROGRESSION_STAT_LEVELS_PER_LOC);
   for (let i = 0; i < totalAdded; i++) {
     const stat = PROGRESSION_STAT_ORDER[i % 3];
     if (levels[stat] < cap) levels[stat]++;
@@ -356,11 +407,18 @@ function buildProgressionLevels(targetLocationLevel) {
 function buildProgressionEquipment(targetLocationLevel) {
   const slotIds = Object.keys(EQUIPMENT_SLOTS);
   const items = [];
-  // 1 boss-drop за каждую пройденную локацию (L1..target-1), уникальный слот, модальная редкость.
-  for (let cleared = 1; cleared < targetLocationLevel && cleared <= slotIds.length; cleared++) {
-    const slotId = slotIds[(cleared - 1) % slotIds.length];
-    const rarityId = modalRarity(bossRarityWeights(cleared));
-    const item = generateAverageItem(slotId, rarityId, cleared);
+  // Для каждого слота — последняя локация (< target), на которой выпал предмет в этом слоте.
+  // Ротация: cleared=1 → slot[0], cleared=2 → slot[1], ..., cleared=7 → slot[0] снова.
+  // На L40 это даст эквип с локаций ~L34-L39, а не L1-L6 как было раньше (lazy upgrade ladder).
+  for (let i = 0; i < slotIds.length; i++) {
+    let lastCleared = -1;
+    for (let cleared = i + 1; cleared < targetLocationLevel; cleared += slotIds.length) {
+      lastCleared = cleared;
+    }
+    if (lastCleared < 1) continue;
+    const slotId = slotIds[i];
+    const rarityId = modalRarity(bossRarityWeights(lastCleared));
+    const item = generateAverageItem(slotId, rarityId, lastCleared);
     if (item) items.push(item);
   }
   return items;

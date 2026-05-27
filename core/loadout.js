@@ -1,8 +1,7 @@
 // Состояние скиллов: открытые, уровни, шарды, активный лоадаут (3 слота).
 // Шарды — заглушка для Этапа 3, уровни в Этапе 2 фиксированы = 1.
 
-import { SKILLS, STARTING_SKILLS, GUARANTEED_UNLOCKS, GACHA, shardCostForLevel, MAX_SKILL_LEVEL } from '../balance/skills.js';
-import { ENEMY_BASE, ELITE_BASE, BOSS_BASE } from '../balance/enemies.js';
+import { SKILLS, STARTING_SKILLS, GUARANTEED_UNLOCKS, GACHA, SHARD_DROP, shardCostForLevel, MAX_SKILL_LEVEL } from '../balance/skills.js';
 
 export const LOADOUT_SLOTS = 3;
 
@@ -147,18 +146,23 @@ export function addShard(skillId, count = 1) {
   loadoutState.shards[skillId] = (loadoutState.shards[skillId] || 0) + count;
 }
 
-// Дроп шарда с врага. Возвращает { skillId, name } или null.
-// Шанс берётся из *_BASE.shardDropChance, скилл — случайный из открытых.
+// Дроп шарда с врага. Возвращает { skillId, name, count } или null.
+// Единые параметры из SHARD_DROP (balance/skills.js):
+//   - босс: гарантированно роняет SHARD_DROP.perBossCount шардов в один случайный открытый скилл
+//   - моб: шанс SHARD_DROP.perMobChance → +1 шард в один случайный открытый скилл
+// Закрытым скиллам шарды не идут (открываются через гача-сундук).
 export function rollShardDropForEnemy(enemy) {
-  if (enemy.kind === 'bar_boss') return null;     // бар-босс не роняет шарды
-  let chance;
-  if (enemy.kind === 'boss')      chance = BOSS_BASE.shardDropChance;
-  else if (enemy.kind === 'elite') chance = ELITE_BASE.shardDropChance;
-  else                              chance = ENEMY_BASE.shardDropChance;
-  if (Math.random() >= chance) return null;
+  if (enemy.kind === 'bar_boss') return null;     // бар-босс не роняет шарды (награда отдельно через скретч)
   const owned = loadoutState.unlocked;
   if (owned.length === 0) return null;
+  let count;
+  if (enemy.kind === 'boss') {
+    count = SHARD_DROP.perBossCount;
+  } else {
+    if (Math.random() >= SHARD_DROP.perMobChance) return null;
+    count = 1;
+  }
   const id = owned[Math.floor(Math.random() * owned.length)];
-  addShard(id, 1);
-  return { skillId: id, name: SKILLS[id].name };
+  addShard(id, count);
+  return { skillId: id, name: SKILLS[id].name, count };
 }

@@ -46,6 +46,9 @@ export function drawWorld(ctx, world) {
   }
 
   const currentArena = world.location.arenas[world.hero.targetArenaIndex - 1];
+  if (currentArena && currentArena.groundEffects && currentArena.groundEffects.length > 0) {
+    drawGroundEffects(ctx, currentArena.groundEffects, world.timeNow);
+  }
   if (currentArena && currentArena.enemies) {
     // Aura rings — отдельным проходом ПОД врагами (чтобы враги визуально стояли «на ауре»).
     for (const e of currentArena.enemies) {
@@ -68,6 +71,43 @@ export function drawWorld(ctx, world) {
   drawEffects(ctx, world.timeNow);
   drawDamageNumbers(ctx, world.timeNow);
   ctx.restore();
+}
+
+// Ground effects:
+//  • target=undefined — молотовая лужа врага (оранжевая, бьёт героя).
+//  • target='enemies' — L10 slam-зона героя (золотая, бьёт врагов).
+// Стиль: пульс, насыщенность убывает к expiresAt.
+function drawGroundEffects(ctx, groundEffects, timeNow) {
+  for (const ge of groundEffects) {
+    if (timeNow >= ge.expiresAt) continue;
+    const isHeroZone = ge.target === 'enemies';
+    const fill   = isHeroZone ? '#ffd23f' : '#d35400';
+    const stroke = isHeroZone ? '#ffe88a' : '#ff7e3e';
+    const core   = isHeroZone ? '#ff9500' : '#ff4500';
+    const remaining = (ge.expiresAt - timeNow) / (ge.expiresAt - ge.spawnedAt);
+    const pulse = 0.5 + 0.5 * Math.sin(timeNow * 8 + ge.x * 0.01);
+    ctx.save();
+    // Заливка
+    ctx.beginPath();
+    ctx.arc(ge.x, ge.y, ge.radius, 0, Math.PI * 2);
+    ctx.fillStyle = fill;
+    ctx.globalAlpha = 0.18 + 0.12 * pulse * remaining;
+    ctx.fill();
+    // Обводка
+    ctx.beginPath();
+    ctx.arc(ge.x, ge.y, ge.radius, 0, Math.PI * 2);
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = 2;
+    ctx.globalAlpha = 0.5 + 0.4 * remaining;
+    ctx.stroke();
+    // Внутренний "горячий" круг
+    ctx.beginPath();
+    ctx.arc(ge.x, ge.y, ge.radius * (0.4 + 0.15 * pulse), 0, Math.PI * 2);
+    ctx.fillStyle = core;
+    ctx.globalAlpha = 0.25 * remaining;
+    ctx.fill();
+    ctx.restore();
+  }
 }
 
 function drawProjectiles(ctx, projectiles, timeNow) {
@@ -150,6 +190,34 @@ function drawEnemy(ctx, e, timeNow) {
   const knockedDown = e.knockdownUntil > timeNow;
   const windingUp = e.windingUpUntil > timeNow;
   ctx.save();
+  // Bomber death-telegraph: жёлто-оранжевый пунктирный круг на slamRadius + пульсация спрайта.
+  // Визуально отличается от красного slam'а Качка (другой цвет, другая длительность).
+  if (e.dying && e.deathTelegraphUntil > timeNow) {
+    const tRaw = 1 - (e.deathTelegraphUntil - timeNow) / e.deathTelegraphDuration;
+    const t = Math.max(0, Math.min(1, tRaw));
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, e.slamRadius, 0, Math.PI * 2);
+    ctx.strokeStyle = '#ff8800';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 4]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, e.slamRadius * t, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255, 136, 0, 0.25)';
+    ctx.fill();
+    // Пульсация самого спрайта — быстрая, чтобы было «вот-вот рванёт».
+    const pulse = 1 + Math.sin(timeNow * 24) * 0.25;
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, e.radius * pulse, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffaa33';
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#0a0612';
+    ctx.stroke();
+    ctx.restore();
+    return;
+  }
   // Замах:
   //  - SLAM (Качок, slamRadius > 0): пунктирный круг на земле + растущая заливка по t.
   //    Та же визуальная форма, что у landing marker'а молотова — только красная и медленнее.
@@ -234,6 +302,13 @@ function drawMarkedIndicator(ctx, e) {
   ctx.font = '14px VT323, monospace';
   ctx.textAlign = 'right';
   ctx.textBaseline = 'middle';
+  // L10 hook: если стак > 1, рядом с маркером показываем число (хN) светящимся жёлтым.
+  const stacks = e.markedStacks || 0;
+  if (stacks > 1) {
+    ctx.fillStyle = '#ffd23f';
+    ctx.fillText(`×${stacks}`, e.x - e.radius - 16, e.y - e.radius - 4);
+  }
+  ctx.fillStyle = '#fff';
   ctx.fillText('🎯', e.x - e.radius - 2, e.y - e.radius - 4);
   ctx.restore();
 }
@@ -300,4 +375,11 @@ function drawHeroHpBar(ctx, hero) {
   const pct = cur / max;
   ctx.fillStyle = pct > 0.5 ? '#4fd6ff' : pct > 0.25 ? '#ffd23f' : '#ff3ea5';
   ctx.fillRect(x, y, w * pct, h);
+  // L10 breath shield: голубая полоска поверх HP-бара. Длина — пропорция amount/max, cap 1.0
+  // (overheal может теоретически быть > max, но визуально полоска не выходит за w).
+  if (hero.shield && hero.shield.amount > 0) {
+    const sPct = Math.min(1, hero.shield.amount / max);
+    ctx.fillStyle = 'rgba(180, 220, 255, 0.9)';
+    ctx.fillRect(x, y - 2, w * sPct, 2);
+  }
 }

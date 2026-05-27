@@ -17,7 +17,7 @@ export const ENERGY = {
 
 export const STAT_LEVEL_XP = {
   baseXp: 20,
-  growthMultiplier: 1.35,
+  growthMultiplier: 1.14,
 };
 
 export function xpForLevel(level) {
@@ -95,9 +95,10 @@ export const TRAINERS = {
 // T1: ~6 зелёных / 17 продуктивных; T5: ~10 зелёных / 28 продуктивных.
 export const TRAINER_TIERS = [
   { tier: 0, statMultiplier: 0,   levelCap: 0,  xpPerTap: 0,   fatigueResist: 1.0,  upgradeCost: 0 },
-  { tier: 1, statMultiplier: 1.0, levelCap: 5,  xpPerTap: 3,   fatigueResist: 1.0,  upgradeCost: 100 },
-  { tier: 2, statMultiplier: 1.5, levelCap: 10, xpPerTap: 10,  fatigueResist: 0.85, upgradeCost: 1000 },
-  { tier: 3, statMultiplier: 2.0, levelCap: 15, xpPerTap: 30,  fatigueResist: 0.70, upgradeCost: 6000 },
-  { tier: 4, statMultiplier: 2.5, levelCap: 20, xpPerTap: 90,  fatigueResist: 0.55, upgradeCost: 15000 },
-  { tier: 5, statMultiplier: 3.0, levelCap: 25, xpPerTap: 270, fatigueResist: 0.40, upgradeCost: 30000 },
+  { tier: 1, statMultiplier: 1.0, levelCap: 10, xpPerTap: 3,   fatigueResist: 1.0,  upgradeCost: 100 },
+  { tier: 2, statMultiplier: 2.0, levelCap: 20, xpPerTap: 10,  fatigueResist: 0.85, upgradeCost: 1000 },
+  { tier: 3, statMultiplier: 3.0, levelCap: 30, xpPerTap: 30,  fatigueResist: 0.70, upgradeCost: 6000 },
+  { tier: 4, statMultiplier: 4.0, levelCap: 40, xpPerTap: 90,  fatigueResist: 0.55, upgradeCost: 15000 },
+  { tier: 5, statMultiplier: 5.0, levelCap: 50, xpPerTap: 270, fatigueResist: 0.40, upgradeCost: 30000 },
+  { tier: 6, statMultiplier: 6.0, levelCap: 60, xpPerTap: 810, fatigueResist: 0.30, upgradeCost: 60000 },
 ];

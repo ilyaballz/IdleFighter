@@ -1,24 +1,24 @@
+// Шарды теперь конфигурируются единой константой SHARD_DROP в balance/skills.js
+// (perMobChance/perBossCount). В _BASE остаются только equipmentDropChance + статы.
 export const ENEMY_BASE = {
-  baseHp: 14,
-  baseDamage: 2.5,
+  baseHp: 10,
+  baseDamage: 2,
   baseAttackSpeed: 0.7,
   moveSpeed: 90,
   bodyRadius: 18,
-  baseCoinDrop: 1,
-  shardDropChance: 0.01,
+  baseCoinDrop: 1,            // минимум — не режется
   equipmentDropChance: 0.02,
   color: '#8a7560',
   name: 'Гопник',
 };
 
 export const ELITE_BASE = {
-  baseHp: 60,
+  baseHp: 50,           // ×2 от 25 — чтобы single-target скиллы раскрывались, а не one-shot
   baseDamage: 5,
   baseAttackSpeed: 0.6,
   moveSpeed: 80,
   bodyRadius: 26,
-  baseCoinDrop: 15,
-  shardDropChance: 0.10,
+  baseCoinDrop: 8,            // ×0.5 от 15
   equipmentDropChance: 0.25,
   color: '#9b59d4',
   name: 'Байкер',
@@ -29,14 +29,13 @@ export const ELITE_BASE = {
 // Дальник — единственный пока ranged-враг. Бросает projectile (Молотов) с дистанции.
 // Не кайтит: подходит на attackRange и стоит, бросая, даже если герой подбежал в упор.
 export const RANGED_BASE = {
-  baseHp: 16,
-  baseDamage: 4,
+  baseHp: 6,
+  baseDamage: 3,
   baseAttackSpeed: 0.5,    // 1 бросок ~ каждые 2 секунды
   moveSpeed: 70,
   bodyRadius: 18,
   attackRange: 220,        // на каком расстоянии встаёт и начинает бросать
-  baseCoinDrop: 3,
-  shardDropChance: 0.04,
+  baseCoinDrop: 2,            // ×0.5 от 3 → округлено вверх
   equipmentDropChance: 0.06,
   color: '#d97706',        // оранжевый — отличить от гопника
   name: 'Дальник',
@@ -46,15 +45,14 @@ export const RANGED_BASE = {
 // (slamRadius); по завершении телеграфа — AOE-удар по всем внутри круга (heavy.damage).
 // Knockdown отменяет замах. Hero автономен и не уходит сам — игрок должен жать KD скилл.
 export const HEAVY_BASE = {
-  baseHp: 80,
-  baseDamage: 12,           // ×3 базы elite — серьёзная угроза если попадёт
+  baseHp: 100,              // ×2 от 50 — single-target скиллы должны работать, не one-shot
+  baseDamage: 10,           // ×3 базы elite — серьёзная угроза если попадёт
   baseAttackSpeed: 0.4,
   moveSpeed: 60,            // самый медленный
   bodyRadius: 30,
   windupDuration: 1.5,      // длительность телеграфа (=рост круга на земле)
   slamRadius: 80,           // радиус AOE-удара. Hero почти всегда внутри (attackRadius~55 + bodyRadius)
-  baseCoinDrop: 10,
-  shardDropChance: 0.08,
+  baseCoinDrop: 5,            // ×0.5 от 10
   equipmentDropChance: 0.15,
   color: '#c0392b',         // тёмно-красный
   name: 'Качок',
@@ -67,13 +65,12 @@ export const HEAVY_BASE = {
 // Поле `aura` — универсальная схема для саппортов (см. battle.js tickAuras).
 // Для будущих типов (баффер, негативная аура и т.п.) меняется только `effect` + `power`.
 export const HEALER_BASE = {
-  baseHp: 12,
+  baseHp: 10,
   baseDamage: 2,
   baseAttackSpeed: 0.6,
   moveSpeed: 65,
   bodyRadius: 17,
-  baseCoinDrop: 2,
-  shardDropChance: 0.03,
+  baseCoinDrop: 1,            // ×0.5 от 2
   equipmentDropChance: 0.04,
   color: '#5be35b',           // зелёный — тематика хила
   name: 'Лекарь',
@@ -88,17 +85,42 @@ export const HEALER_BASE = {
   },
 };
 
+// Подрывник — хрупкий kamikaze-враг. Бежит к герою быстрее regular'а, melee-удар на сближении,
+// на 0 HP вместо мгновенной смерти стартует death-telegraph (~0.4с пульсация + жёлтый круг),
+// после которого AOE-взрыв 80px radius, урон = damage × deathExplosionDmgMult.
+// Defining feature: принуждение к мобильности — нельзя стоять в melee, нельзя AOE-spam'ить
+// без оглядки (несколько bomber'ов в смежных позициях = цепной взрыв).
+// Counter: dash в момент telegraph'а, knockback'ом скиллов отодвинуть, distance-control.
+export const BOMBER_BASE = {
+  baseHp: 5,                       // хрупкий — должен взорваться, не танчить
+  baseDamage: 6,                   // ×3 от прошлой базы (2). Взрыв через deathExplosionDmgMult 1.5
+                                   // = 9 base × loc growth. На L31 ≈ 600+ dmg/взрыв → forced dash.
+  baseAttackSpeed: 0.8,
+  moveSpeed: 110,                  // быстрее regular (90) — догоняет
+  bodyRadius: 16,                  // мельче regular (18) — визуально хрупкий
+  baseCoinDrop: 1,            // ×0.5 от 2
+  equipmentDropChance: 0.07,
+  color: '#d35400',                // тёмно-оранжевый — отличить от gopnika (тёплый коричневый) и heavy (тёмно-красный)
+  name: 'Подрывник',
+  deathExplosionDmgMult: 1.5,      // damage взрыва = damage × этот множитель (от damage той же локации)
+  deathTelegraphDuration: 0.4,     // окно перед взрывом — успеть dash'ом отскочить
+  slamRadius: 80,                  // радиус AOE-взрыва (как у качка SLAM)
+};
+
 export const BOSS_BASE = {
-  baseAttackSpeed: 0.5,
+  baseHp: 100,                 // boss = baseHp × wave × enemyMul × (CHAPTER_WALL_BUMP, если финал главы)
+  baseDamage: 10,
+  baseAttackSpeed: 0.6,        // боссы бьют чуть чаще обычных мобов (mob = 0.7, elite = 0.6, heavy = 0.4)
+  // armorPen — игнорирование части `defense` игрока при ударе босса. 0.4 = boss проходит 40% защиты.
+  // Бьёт целенаправленно по танк-билдам (высокая def): мягкие билды почти не замечают.
+  armorPen: 0.4,
   moveSpeed: 70,
   bodyRadius: 36,
-  baseCoinDrop: 50,
-  shardDropChance: 1.0,
+  baseCoinDrop: 25,           // ×0.5 от 50
   equipmentDropChance: 1.0,
   energyReward: 0,             // Pure design: бой не даёт энергию, восстановление только idle
   color: '#e63946',
   name: 'Босс',
-  // damageMultiplier теперь живёт в BOSS_DAMAGE_CURVE (по умолчанию плоский ×2.0).
 };
 
 // Кристаллы (💎 hard currency) — premium time-savers в магазине. Источники см. core/game.js:
@@ -115,134 +137,98 @@ export const SCALING = {
   perWaveMultiplier: 1.05,    // ~+5% за арену внутри локации (общий для всех)
 };
 
-// Финальная локация — до неё растягиваются power-кривые сложности (BOSS_HP_CURVE, BOSS_DAMAGE_CURVE).
-// Если решишь добавить L16-L20 (или урезать до L10) — меняй только здесь, и кривые автоматически
-// перенацеливаются. Exp-кривые (ENEMY_HP/DAMAGE_CURVE) не зависят от FINAL_LOCATION — они растут
-// экспоненциально без явного пика.
+// Финальная локация — до неё растягивается линейная интерполяция количества арен
+// (arenasForLocation). Если решишь добавить L16-L20 или урезать — меняй только здесь.
 //
-// Заметка: pack-тиры (T4 fromLoc) и таблицы редкости дропа в equipment.js пока завязаны на абсолютные
-// номера локаций — если будешь сильно растягивать игру, их тоже стоит передвинуть пропорционально.
+// Заметка: pack-тиры (T4 fromLoc) и таблицы редкости дропа в equipment.js завязаны на
+// абсолютные номера локаций — при сильном растяжении их тоже стоит передвинуть.
 // 4 главы × 10 локаций = 40 при полном расширении. Сейчас реализованы главы 1-2 (L1-L20).
-// Главы 3-4 — в отдельной сессии (см. project_chapters_plan в memory).
-export const FINAL_LOCATION = 20;
+// Главы 1-4 (Город/Подземка/Клуб/Стройка), L1-L40. См. project_chapters_plan в memory.
+export const FINAL_LOCATION = 40;
 
 // ──────────────────────────────────────────────────────────────────────────
-// КРИВЫЕ СЛОЖНОСТИ — единая «крутилка баланса» по локациям.
+// КРИВАЯ СЛОЖНОСТИ — per-chapter exp growth + chapter wall bump.
 //
-// evaluateCurve поддерживает два режима. Подбирай тот, что лучше ложится на твой контент:
+// Идея:
+//   • На каждую главу — один числовой regulator: «насколько за локацию растут мобы».
+//   • Soft entry: первая локация новой главы использует CHAPTER_ENTRY_GROWTH (меньше CHAPTER_MOB_GROWTH),
+//     даёт игроку «передышку» на переход — успеть прокачать тренажёр / собрать дроп.
+//   • Босс — те же base stats (BOSS_BASE.baseHp/baseDamage) × wave × enemyMul.
+//   • Финальный босс главы (L10/20/30/40) получает дополнительный CHAPTER_WALL_BUMP.
 //
-//   mode: 'exp'   — startMult × growthRate^(loc - startLocation), без крутого cap'а.
-//                   Хорош для unbounded прогрессии «idle-стиля» (мобы растут с каждой локой).
-//                   Опционально: endMult клампит сверху.
-//
-//   mode: 'power' — startMult + (endMult - startMult) × t^curve
-//                   где t = clamp((loc - startLocation) / (endLocation - startLocation), 0, 1).
-//                   Bounded — у кривой явный пик. curve управляет формой:
-//                     curve = 1.0 → линейно
-//                     curve > 1.0 → медленный старт, ускорение к концу (концентрация в late)
-//                     curve < 1.0 → быстрый старт, плавное затухание к концу
-//                   Хорош для боссов и любых «контролируемых» прогрессий.
-//
-// Примеры тюнинга:
-//   • Хочешь чтобы L1-L7 ощущался как «комфорт-зона», а сложность бьёт в late? Power, curve > 2.
-//   • Хочешь резкую кривую но с плато на L15? Exp + endMult.
-//   • Хочешь снизить общую сложность? Уменьши endMult (power) или growthRate (exp).
+// Тюнинг:
+//   • Гл.X в среднем жёстче → ↑ CHAPTER_MOB_GROWTH[X-1]
+//   • Старт гл.X слишком резкий → ↓ CHAPTER_ENTRY_GROWTH[X-1]
+//   • Стенка-финал главы тяжелее → ↑ CHAPTER_WALL_BUMP[locFinal]
+//   • Все боссы (вкл. промежуточные) толще/больнее → ↑ BOSS_BASE.baseHp/baseDamage
 // ──────────────────────────────────────────────────────────────────────────
 
-function evaluateCurve(c, loc) {
-  let value;
-  if (c.mode === 'exp') {
-    value = c.startMult * Math.pow(c.growthRate, Math.max(0, loc - c.startLocation));
-    if (c.endMult != null) value = Math.min(c.endMult, value);
-  } else {
-    // power (default)
-    const span = c.endLocation - c.startLocation;
-    if (span <= 0) {
-      value = c.endMult;
-    } else {
-      const t = Math.max(0, Math.min(1, (loc - c.startLocation) / span));
-      value = c.startMult + (c.endMult - c.startMult) * Math.pow(t, c.curve);
-    }
-  }
-  // Per-loc spike: на конкретных локациях значение домножается на bump.
-  // Влияет только на эту локу, соседние не задеваются — это «boss-wall» паттерн.
-  // Композится с любым mode ('exp' или 'power'), ортогональная фича.
-  if (c.locationBumps && c.locationBumps[loc] != null) {
-    value *= c.locationBumps[loc];
-  }
-  return value;
+// Сколько мобы растут за каждую локацию внутри главы. 1.23 = +23% к HP/DMG за локу.
+// Применяется ко ВСЕМ типам врагов (regular/elite/heavy/ranged/boss) и к их damage.
+// Единый рост 1.15 по всем главам — калибровано под линейную прогрессию игрока.
+export const CHAPTER_MOB_GROWTH = [
+  1.15,  // Гл.1 (L1-L10)  — Город
+  1.15,  // Гл.2 (L11-L20) — Подземка
+  1.15,  // Гл.3 (L21-L30) — Клуб
+  1.15,  // Гл.4 (L31-L40) — Стройка
+];
+
+// Soft entry — множитель перехода с последней локи прошлой главы на первую новой
+// (L10→L11, L20→L21, L30→L31). Меньше CHAPTER_MOB_GROWTH = плавнее переход через стенку.
+// Применяется только при смене главы (не на L1, у неё нет «прошлой главы»).
+export const CHAPTER_ENTRY_GROWTH = [
+  null,   // Гл.1 стартует с L1, прыжка нет
+  1.10,   // L10 → L11: вход в Подземку. Чтобы игрок мог докачать T3 без смертей.
+  1.10,   // L20 → L21: вход в гл.3 — менее мягкий чем в гл.2, эндгейм-игрок справится
+  1.20,   // L30 → L31: placeholder
+];
+
+// Дополнительный множитель только на финальном боссе главы (chapter wall feel).
+// Применяется к HP и damage. Промежуточные боссы (L2-L9, L11-L19) этого бампа не получают.
+// Wall bumps по главам. L10/L20 калибровано (1.1 = «впритых» для откалиброванного игрока).
+// L30 1.2 — поднят т.к. real-игрок с legendary+hp% эквипом слишком комфортно проходил 1.1
+// (✓91% hp пройдено, должно быть ~10-30%). Подбирается итеративно playtest'ом.
+export const CHAPTER_WALL_BUMP = {
+  10: 1.1,
+  20: 1.1,
+  30: 1.3,
+  40: 1.1,
+};
+
+function chapterOf(loc) {
+  return Math.min(CHAPTER_MOB_GROWTH.length - 1, Math.floor((loc - 1) / 10));
 }
 
-// HP всех мобов (regular/elite/heavy/ranged + база босса до бонусного множителя).
-// growthRate растянут под 20 локаций: финальный множитель ×48 (vs ~50 у L15 при 1.3).
-// L1=×1, L5=×2.2, L10=×6.0, L15=×16, L20=×48.
-export const ENEMY_HP_CURVE = {
-  mode: 'exp',
-  startLocation: 1,
-  startMult:     1.0,
-  growthRate:    1.22,
-};
-
-// Damage всех мобов — зеркалит HP.
-export const ENEMY_DAMAGE_CURVE = {
-  mode: 'exp',
-  startLocation: 1,
-  startMult:     1.0,
-  growthRate:    1.22,
-};
-
-// Доп-сложность поверх ENEMY_HP/DAMAGE_CURVE — синхронизирует силу врагов с power-spike'ами
-// игрока по мере прогрессии. До L10 практически нейтральна (×1.0-1.11), с L11 плавно
-// нарастает к ×3.0 на L40. По MC-симу полный сет игрока хронологически:
-//   L16 — full rare,  L23 — full epic,  L28+ — full legendary.
-// Кривая back-loaded (curve=2.0): растёт там же, где у игрока накапливается мощь.
-//
-// Зеркалит подход boss-кривых (там BOSS_HP_CURVE множит ENEMY_HP_CURVE). Применяется
-// в enemyHp/DamageMultForLocation → автоматически попадает на regular/elite/boss.
-export const ENEMY_DIFFICULTY_CURVE = {
-  mode: 'power',
-  startLocation: 1,
-  endLocation:   40,            // полный охват 4 глав × 10 локаций (см. project_chapters_plan)
-  startMult:     1.0,
-  endMult:       3.0,
-  curve:         2.0,
-};
+// Множитель силы врагов на локации L. enemyMul(1) = 1.0.
+// Накопительное произведение CHAPTER_MOB_GROWTH по локациям, с подменой на CHAPTER_ENTRY_GROWTH
+// при пересечении границы главы.
+function enemyMul(loc) {
+  let m = 1.0;
+  for (let k = 2; k <= loc; k++) {
+    const ch = chapterOf(k);
+    const isChapterEntry = ch !== chapterOf(k - 1);
+    if (isChapterEntry && CHAPTER_ENTRY_GROWTH[ch] != null) {
+      m *= CHAPTER_ENTRY_GROWTH[ch];
+    } else {
+      m *= CHAPTER_MOB_GROWTH[ch];
+    }
+  }
+  return m;
+}
 
 // ──────────────────────────────────────────────────────────────────────────
-// MILESTONE-ЛОКИ («boss-walls»)
-// Один список локаций + три кривые силы бампа: HP, damage, legendary boost.
-// Сила бампа интерполируется по индексу milestone'а (0=первый, N-1=последний),
-// а не по локации — то есть curve управляет «насколько ранние milestone-боссы мягче поздних».
+// LEGENDARY BOOST — отдельная механика дропа на milestone-боссах глав.
+// Не имеет отношения к сложности боя, остаётся как было (используется equipment.js).
 // ──────────────────────────────────────────────────────────────────────────
 
-// Один milestone на конец каждой главы — это финальный босс главы.
-// Главы 1-2: L10 (Авторитет, Город), L20 (Машинист, Подземка).
-// При реализации глав 3-4 — добавить 30, 40.
-export const MILESTONE_LOCATIONS = [10, 20];
+export const MILESTONE_LOCATIONS = [10, 20, 30, 40];
 
-// Bump к hpMult босса: первый milestone мягкий, последний — жёсткий.
-// При 2 milestones [10, 20]: L10 = 1.10, L20 = 1.5 — финальный босс главы 2 ощутимо толще.
-export const MILESTONE_HP_BUMP_CURVE = {
-  startMult: 1.10,
-  endMult:   1.5,
-  curve:     1.0,
-};
-
-// Bump к damage босса.
-export const MILESTONE_DAMAGE_BUMP_CURVE = {
-  startMult: 1.10,
-  endMult:   1.5,
-  curve:     1.0,
-};
-
-// Аддитивный бонус к weight'у legendary в bossRarityWeights — также по кривой.
 export const MILESTONE_LEGENDARY_BUMP_CURVE = {
   startMult: 3,
   endMult:   7,
   curve:     1.0,
 };
 
-// Раздаёт значения кривой по индексу milestone'а: возвращает map { loc: value }.
 function distributeMilestones(locs, curve) {
   const out = {};
   if (locs.length === 0) return out;
@@ -254,32 +240,7 @@ function distributeMilestones(locs, curve) {
   return out;
 }
 
-const HP_BUMPS  = distributeMilestones(MILESTONE_LOCATIONS, MILESTONE_HP_BUMP_CURVE);
-const DMG_BUMPS = distributeMilestones(MILESTONE_LOCATIONS, MILESTONE_DAMAGE_BUMP_CURVE);
 export const MILESTONE_LEGENDARY_BOOST = distributeMilestones(MILESTONE_LOCATIONS, MILESTONE_LEGENDARY_BUMP_CURVE);
-
-// HP-мультипликатор босса поверх ENEMY_HP_CURVE. L1 — хардкод (100 hp), кривая с L2.
-// locationBumps — derived из MILESTONE_HP_BUMP_CURVE + MILESTONE_LOCATIONS.
-export const BOSS_HP_CURVE = {
-  mode: 'power',
-  startLocation: 2,
-  endLocation:   FINAL_LOCATION,
-  startMult:     10,
-  endMult:       25,
-  curve:         0.5,
-  locationBumps: HP_BUMPS,
-};
-
-// Damage-мультипликатор босса поверх ENEMY_DAMAGE_CURVE.
-export const BOSS_DAMAGE_CURVE = {
-  mode: 'power',
-  startLocation: 1,
-  endLocation:   FINAL_LOCATION,
-  startMult:     2.0,
-  endMult:       2.0,
-  curve:         0.5,
-  locationBumps: DMG_BUMPS,
-};
 
 // Гайки 🔩 — валюта Дома (отделена от монет тренажёров).
 // Сплит 60/40 (босс/арена): TOTAL_NUT = bossBonus + sum(arenaDrops). Игрок получает свою долю
@@ -325,35 +286,30 @@ export function bossEnergyDrop(_locationIndex) {
   return 0;
 }
 
+// HP/DMG множитель локации — единая кривая для всех типов мобов.
+// Используется arena.js при создании врагов: stat = base × wave × enemyMul(loc).
 export function enemyHpMultForLocation(loc) {
-  return evaluateCurve(ENEMY_HP_CURVE, loc) * evaluateCurve(ENEMY_DIFFICULTY_CURVE, loc);
+  return enemyMul(loc);
 }
 export function enemyDamageMultForLocation(loc) {
-  return evaluateCurve(ENEMY_DAMAGE_CURVE, loc) * evaluateCurve(ENEMY_DIFFICULTY_CURVE, loc);
-}
-export function bossHpMultiplierForLocation(loc) {
-  if (loc <= 1) return 1; // L1 хардкоднут отдельно
-  return evaluateCurve(BOSS_HP_CURVE, loc);
-}
-export function bossDamageMultiplierForLocation(loc) {
-  return evaluateCurve(BOSS_DAMAGE_CURVE, loc);
+  return enemyMul(loc);
 }
 
-// L1 — обучающий хардкод (босс HP 100 / DMG 4), чтобы первый забег без прокачки был проходим.
-// L2+ — формула: база Гопника × wave × ENEMY_*_CURVE × BOSS_*_CURVE.
+// L1-L2 — обучающий хардкод, чтобы no-skill игрок выживал гарантированно (gym разлочен только
+// с L3, до этого статы не качаются; единственный source of power — L1 drop кулаков +5 dmg).
+//   L1: 100 HP / 4 DMG  — разогрев, минимальная база.
+//   L2: 200 HP / 5 DMG  — это BOSS_BASE.baseHp/baseDamage без масштабов, "настоящие" baseline.
+// L3+ — формула: BOSS_BASE.baseHp × wave × enemyMul × (CHAPTER_WALL_BUMP, если финал главы).
 // Юнит-модификаторы (scaleHp/scaleDmg от спец-арен) применяются СНАРУЖИ — это «база» босса.
 export function bossStatsForLocation(locationIndex, arenaIndex) {
-  if (locationIndex === 1) {
-    return { hp: 100, damage: 4 };
-  }
-  const wave        = Math.pow(SCALING.perWaveMultiplier, arenaIndex - 1);
-  const enemyHpMul  = enemyHpMultForLocation(locationIndex);
-  const enemyDmgMul = enemyDamageMultForLocation(locationIndex);
-  const bossHpMul   = bossHpMultiplierForLocation(locationIndex);
-  const bossDmgMul  = bossDamageMultiplierForLocation(locationIndex);
+  if (locationIndex === 1) return { hp: 100, damage: 4 };
+  if (locationIndex === 2) return { hp: 200, damage: 5 };
+  const wave = Math.pow(SCALING.perWaveMultiplier, arenaIndex - 1);
+  const mul  = enemyMul(locationIndex);
+  const bump = CHAPTER_WALL_BUMP[locationIndex] || 1;
   return {
-    hp:     ENEMY_BASE.baseHp     * wave * enemyHpMul  * bossHpMul,
-    damage: ENEMY_BASE.baseDamage * wave * enemyDmgMul * bossDmgMul,
+    hp:     BOSS_BASE.baseHp     * wave * mul * bump,
+    damage: BOSS_BASE.baseDamage * wave * mul * bump,
   };
 }
 
@@ -423,63 +379,74 @@ export function specialSpawnChance(locationIndex) {
 //   heavy_pack:  4 тяжёлых (после cap'а — только с новым kind в гл. 3+)
 //   mixed_pack:  ~7 юнитов (состав варьируется, размер — нет)
 //
-// units: { kind, count, scaleHp?, scaleDmg?, scaleRadius?, scaleSpeed?, scaleRange? }
+// units: { kind, count, scaleHp?, scaleDmg?, scaleRadius?, scaleSpeed?, scaleRange?, wave? }
+//
+// wave (default 1) — ПОЗИЦИОННАЯ группа спавна, не таймер. Wave 1 спавнится ближе к точке
+// входа героя, wave 2 — в глубине арены (0.80-0.95 Y). Двух-фазное столкновение: пока герой
+// разбирается с близкими, дальние добегают (~2-3с со swarm-speed). Без «магического появления».
+// См. randomSpawnPos в arena.js → WAVE2_SPAWN_Y_FRAC.
+
 export const SPECIAL_ARENAS = {
   // ──────────────────────────────────────────────────────────────────────────
-  // Принцип прогрессии всех паков: ~5 локаций на тир, границы привязаны к
-  // финалам глав (L10/L20). Каждый тир усиливает ОПРЕДЕЛЯЮЩУЮ фичу пака,
-  // а не плодит чужие kind'ы. Cap'ы по count держим — после них эскалация
-  // через профиль (speed/range/role-mixology).
-  // Тиры L1-L20 реализованы здесь. T5+ для глав 3-4 (Клуб/Стройка) —
-  // см. project_chapters_plan.md, добавятся вместе с новыми kind'ами
-  // (Лекарь, Щитоносец, Берсерк, Подрывник).
+  // Принцип: 4 тира на пак, каждый = одна глава. Каждый переход вводит ОДНО
+  // отчётливое изменение defining feature, а не «чуть-чуть больше всего».
+  // Mixed_pack — единственный «всё-в-одном», прогрессия через состав.
   // ──────────────────────────────────────────────────────────────────────────
   swarm: {
     label: 'рой',
-    // Defining feature: количество + скорость (хрупкие). После cap=14 — speed↑, hp↓.
+    // Defining feature: количество + скорость, хрупкие но больно бьют если не зачищать.
+    // Прогрессия: count→cap (гл.1) → glass cannons (гл.2) → ВОЛНЫ (гл.3) → +bomber (гл.4).
     tiers: [
-      // T1 (L1-L5, видим с L3 = unlock) — знакомство, рой как «много мелких».
+      // T1 Гл.1 (L1-L10) — intro AoE, count grow.
       { fromLoc: 1, units: [
-        { kind: 'regular', count: 6, scaleHp: 0.6, scaleDmg: 0.7, scaleRadius: 0.85 },
+        { kind: 'regular', count: 10, scaleHp: 0.5, scaleDmg: 0.8, scaleRadius: 0.8, scaleSpeed: 1.2 },
       ]},
-      // T2 (L6-L10) — стандарт Города, рой быстрее и больше.
-      { fromLoc: 6, units: [
-        { kind: 'regular', count: 10, scaleHp: 0.5, scaleDmg: 0.7, scaleRadius: 0.8, scaleSpeed: 1.2 },
-      ]},
-      // T3 (L11-L15) — упираемся в cap (14), Подземка делает их стремительнее.
+      // T2 Гл.2 (L11-L20) — cap по count, glass cannons. Уже больно если не AoE'шишь.
       { fromLoc: 11, units: [
-        { kind: 'regular', count: 14, scaleHp: 0.4, scaleDmg: 0.7, scaleRadius: 0.78, scaleSpeed: 1.3 },
+        { kind: 'regular', count: 14, scaleHp: 0.3, scaleDmg: 1.0, scaleRadius: 0.75, scaleSpeed: 1.5 },
       ]},
-      // T4 (L16-L20) — пик Подземки: speed×1.5, hp×0.3 — мрут с одного хита AOE, но окружают за секунды.
-      { fromLoc: 16, units: [
-        { kind: 'regular', count: 14, scaleHp: 0.3, scaleDmg: 0.7, scaleRadius: 0.75, scaleSpeed: 1.5 },
+      // T3 Гл.3 (L21-L30) — ВОЛНЫ. Половина сразу, вторая через WAVE_DELAY_SEC.
+      // Нельзя сжечь весь AoE на первую волну — иначе вторая накроет на cooldown'е.
+      { fromLoc: 21, units: [
+        { kind: 'regular', count: 10, scaleHp: 0.3, scaleDmg: 1.3, scaleRadius: 0.75, scaleSpeed: 1.5, wave: 1 },
+        { kind: 'regular', count: 8,  scaleHp: 0.3, scaleDmg: 1.3, scaleRadius: 0.75, scaleSpeed: 1.5, wave: 2 },
       ]},
-      // T5+ (L21+, главы 3-4) — +Лекарь (Клуб), +Берсерк/Подрывник (Стройка).
+      // T4 Гл.4 (L31-L40) — волны + бомберы во второй. Зачищать осторожно, не AoE'шить в кучу bomber'ов.
+      { fromLoc: 31, units: [
+        { kind: 'regular', count: 10, scaleHp: 0.3, scaleDmg: 1.5, scaleRadius: 0.75, scaleSpeed: 1.5, wave: 1 },
+        { kind: 'regular', count: 6,  scaleHp: 0.3, scaleDmg: 1.5, scaleRadius: 0.75, scaleSpeed: 1.5, wave: 2 },
+        { kind: 'bomber',  count: 2,  wave: 2 },
+      ]},
     ],
   },
   ranged_pack: {
     label: 'дальники',
-    // Defining feature: объём дистанционного огня. 2 регуляра на фронтлайне ВСЕГДА —
+    // Defining feature: объём дистанционного огня, dash-required. 2 регуляра на фронтлайне ВСЕГДА —
     // без них герой в чистом ranged-паке бегает, снаряды промахиваются по движущемуся
     // (heroSpeed 180 × duration 0.5 = 90 ед смещение vs catch radius 54).
-    // После cap=6 ranged — добавятся роли в гл. 3+ (Лекарь, Подрывник).
+    // Прогрессия — растяжение count по главам, на гл.4 половина ranged'ов становятся снайперами.
     tiers: [
-      // T1 (L5-L10) — знакомство с дистанционным прессом.
+      // T1 Гл.1 (L5-L10) — знакомство с дистанционным прессом.
       { fromLoc: 5, units: [
         { kind: 'regular', count: 2 },
         { kind: 'ranged',  count: 3 },
       ]},
-      // T2 (L11-L15) — вход в Подземку. Снайперы (+20% range от chapter-skin).
+      // T2 Гл.2 (L11-L20) — больше дальников. Снайперы (+20% range от chapter-skin Подземки).
       { fromLoc: 11, units: [
         { kind: 'regular', count: 2 },
         { kind: 'ranged',  count: 5 },
       ]},
-      // T3 (L16-L20) — пик Подземки, cap по count (6).
-      { fromLoc: 16, units: [
+      // T3 Гл.3 (L21-L30) — cap по count, молотов включён через chapter-skin Бармен.
+      { fromLoc: 21, units: [
         { kind: 'regular', count: 2 },
         { kind: 'ranged',  count: 6 },
       ]},
-      // T4+ (L21+) — + Лекарь, + Подрывник (главы 3-4).
+      // T4 Гл.4 (L31-L40) — 2 снайпера среди 6 (scaleRange×1.3 → стреляют издалека).
+      { fromLoc: 31, units: [
+        { kind: 'regular', count: 2 },
+        { kind: 'ranged',  count: 2 },
+        { kind: 'ranged',  count: 4, scaleRange: 1.3 },
+      ]},
     ],
   },
   mixed_pack: {
@@ -510,30 +477,70 @@ export const SPECIAL_ARENAS = {
         { kind: 'healer',  count: 1 },
         { kind: 'ranged',  count: 1 },
       ]},
-      // T4+ (L21+) — + Щитоносец (Клуб), + Берсерк, + Подрывник (Стройка).
+      // T4 (L21-L25, Клуб) — больше heavy, ranged превращается в молотовщика.
+      { fromLoc: 21, units: [
+        { kind: 'elite',   count: 1 },
+        { kind: 'heavy',   count: 2 },
+        { kind: 'regular', count: 2 },
+        { kind: 'healer',  count: 1 },
+        { kind: 'ranged',  count: 1 },
+      ]},
+      // T5 (L26-L30) — пик Клуба: 2 elite + 2 heavy + 2 ranged (молотов), регуляров нет.
+      { fromLoc: 26, units: [
+        { kind: 'elite',   count: 2 },
+        { kind: 'heavy',   count: 2 },
+        { kind: 'healer',  count: 1 },
+        { kind: 'ranged',  count: 2 },
+      ]},
+      // T6 (L31-L33, Стройка старт) — +1 bomber в состав.
+      { fromLoc: 31, units: [
+        { kind: 'elite',   count: 2 },
+        { kind: 'heavy',   count: 2 },
+        { kind: 'healer',  count: 1 },
+        { kind: 'ranged',  count: 2 },
+        { kind: 'bomber',  count: 1 },
+      ]},
+      // T7 (L34-L37) — 2 bomber'а в составе.
+      { fromLoc: 34, units: [
+        { kind: 'elite',   count: 2 },
+        { kind: 'heavy',   count: 2 },
+        { kind: 'healer',  count: 1 },
+        { kind: 'ranged',  count: 2 },
+        { kind: 'bomber',  count: 2 },
+      ]},
+      // T8 (L38-L40) — финал: +1 heavy, всё ещё 2 bomber + молотов.
+      { fromLoc: 38, units: [
+        { kind: 'elite',   count: 2 },
+        { kind: 'heavy',   count: 3 },
+        { kind: 'healer',  count: 1 },
+        { kind: 'ranged',  count: 2 },
+        { kind: 'bomber',  count: 2 },
+      ]},
     ],
   },
   heavy_pack: {
     label: 'тяжёлая банда',
     // Defining feature: плотность telegraph'ов (KD-приоритизация). Cap=3 heavy.
-    // После cap — добавится Щитоносец (heavy kind, гл. 3+).
+    // Чистый KD-фокус. Healer добавляется с L26 как «продлеватель окон».
     tiers: [
-      // T1 (L11-L13) — знакомство с качком: один telegraph, можно спокойно учиться обходить.
+      // T1 (L11-L17) — знакомство с качком: один telegraph, обучение KD.
       { fromLoc: 11, units: [
         { kind: 'heavy', count: 1 },
       ]},
-      // T2 (L14-L17) — telegraph под огнём: ranged заставляет двигаться, нельзя просто отойти.
-      { fromLoc: 14, units: [
-        { kind: 'heavy',  count: 2 },
-        { kind: 'ranged', count: 1 },
-      ]},
-      // T3 (L18-L20) — пик: cap (3) + ranged + Лекарь продлевает telegraph-окна.
+      // T2 (L18-L25) — два качка: KD-приоритизация (какой слэм опаснее сейчас).
       { fromLoc: 18, units: [
-        { kind: 'heavy',  count: 3 },
-        { kind: 'ranged', count: 1 },
+        { kind: 'heavy', count: 2 },
+      ]},
+      // T3 (L26-L33) — добавляется healer: telegraph под heal-aura → нельзя «оставить недобитым».
+      { fromLoc: 26, units: [
+        { kind: 'heavy',  count: 2 },
         { kind: 'healer', count: 1 },
       ]},
-      // T4+ (L21+) — + Щитоносец (Клуб), + Подрывник (Стройка).
+      // T4 (L34-L40) — cap по heavy (3) + healer. Пик KD-плотности.
+      { fromLoc: 34, units: [
+        { kind: 'heavy',  count: 3 },
+        { kind: 'healer', count: 1 },
+      ]},
     ],
   },
   boss_with_minions: {
@@ -551,12 +558,24 @@ export const SPECIAL_ARENAS = {
       // T2 (L15) — Подземка mid. Свита впитывает heavy и ranged.
       { fromLoc: 15, units: [
         { kind: 'boss',    count: 1 },
-        { kind: 'elite',   count: 1 },
-        { kind: 'heavy',   count: 1 },
+        { kind: 'ranged',  count: 2 },
+      ]},
+      // T3 (L25) — Клуб mid. Без новых kind'ов: усилен heavy-count (две тушки = два telegraph).
+      { fromLoc: 25, units: [
+        { kind: 'boss',    count: 1 },
+        { kind: 'elite',   count: 2 },
+        { kind: 'heavy',   count: 2 },
         { kind: 'ranged',  count: 1 },
         { kind: 'regular', count: 2 },
       ]},
-      // T3+ (L25, L35) — добавятся вместе с главами 3-4 (Клуб/Стройка).
+      // T4 (L35) — Стройка mid. Пик плотности «всё подряд» до прихода kind'ов гл.3-4.
+      { fromLoc: 35, units: [
+        { kind: 'boss',    count: 1 },
+        { kind: 'elite',   count: 2 },
+        { kind: 'heavy',   count: 3 },
+        { kind: 'ranged',  count: 2 },
+        { kind: 'regular', count: 2 },
+      ]},
     ],
   },
 };
@@ -576,14 +595,13 @@ export function getSpecialArenaUnits(typeName, loc) {
   return pickTier(def.tiers, loc).units;
 }
 
-// Стандартная элит-арена (вне спец-замены) — узнаваемый паттерн «1 толстый + мясо».
-// Раньше на L8+ она становилась «кашей» (elite+heavy+regular+ranged), что дублировало mixed_pack
-// и стирало её идентичность. Теперь — только элита + регуляры. Mixed_pack остаётся единственным
-// источником «всё подряд», арена-каждой-третьей сохраняет тематический паттерн.
+// Стандартная элит-арена — чистый single-target пак, без регуляров-разбавителей.
+// Прогрессия через увеличение количества элит (1→2→3), не через примешивание других kind'ов.
+// Mixed_pack остаётся единственным источником «всё подряд».
 function getStandardEliteUnits(loc) {
-  if (loc <= 2) return [{ kind: 'elite', count: 1 }];
-  if (loc <= 7) return [{ kind: 'elite', count: 1 }, { kind: 'regular', count: 2 }];
-  return [{ kind: 'elite', count: 1 }, { kind: 'regular', count: 3 }];
+  if (loc <= 20) return [{ kind: 'elite', count: 1 }];   // Гл.1+2: single-target practice
+  if (loc <= 30) return [{ kind: 'elite', count: 2 }];   // Гл.3: dual-target
+  return [{ kind: 'elite', count: 3 }];                  // Гл.4: triple-target rotation
 }
 
 // Подписи арен для UI (HUD, label на канвасе)
@@ -672,8 +690,10 @@ export const FORCED_PACK_SPAWNS = {
   7:  { 2: 'mixed_pack' },             // банда как комплекс известных угроз
   11: { 2: 'heavy_pack' },             // вход в Подземку — сразу знакомство с heavy
   15: { boss: 'boss_with_minions' },   // mid Подземки: банда + heavy (T2)
-  // L10/L20 — чистые боссы глав (Авторитет/Машинист) без свиты, чтобы summon/enrage читались.
-  // L25/L35 — добавятся при реализации глав 3-4.
+  25: { boss: 'boss_with_minions' },   // mid Клуба (T3) — больше heavy/elite в свите
+  35: { boss: 'boss_with_minions' },   // mid Стройки (T4) — пик плотности
+  // L10/L20/L30/L40 — чистые боссы глав без свиты, чтобы их механика (summon/enrage/
+  // dodge/slam) читалась.
 };
 
 function pickRandom(arr) {

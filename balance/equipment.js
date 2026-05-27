@@ -23,7 +23,11 @@ export const RARITIES = {
   good:      { color: '#4caf50', extraAffixes: 1, name: 'Хороший',    weight: 1.50 },
   rare:      { color: '#2196f3', extraAffixes: 2, name: 'Редкий',     weight: 2.00 },
   epic:      { color: '#9c27b0', extraAffixes: 3, name: 'Эпический',  weight: 2.50 },
-  legendary: { color: '#ff9800', extraAffixes: 4, name: 'Легендарный', weight: 3.00 },
+  legendary: { color: '#ff9800', extraAffixes: 3, name: 'Легендарный', weight: 3.00 },
+  // Mythic — эндгейм-награда гл.4 (L31+). +5 secondary affixes vs legendary 3,
+  // value-weight ×4.0 (vs legendary 3.0) — крупнее primary/secondary значения.
+  // Unique-affix pool переиспользуется от legendary (см. LEGENDARY_UNIQUE_AFFIXES).
+  mythic:    { color: '#e91e63', extraAffixes: 5, name: 'Мифический', weight: 4.00 },
 };
 
 // Базовое значение primary affix для common-предмета на L1 локации.
@@ -33,7 +37,7 @@ export const PRIMARY_AFFIX_BASE = {
   damage:         5,
   critChance:     0.03,    // +3% (на L20 legendary → +55%, capCritChance 75% оставляет место для secondary стака)
   maxHp:          30,
-  defense:        0.04,    // +4%
+  defense:        0.03,    // +3% (снижено с 0.04 — endgame танк-билды слишком быстро упираются в cap 75%)
   attackSpeedPct: 0.08,    // +8%
   skillCdrPct:    0.08,    // +8% CDR (rate-based с встроенным diminishing)
 };
@@ -49,7 +53,7 @@ export const SECONDARY_AFFIXES = [
   { type: 'critMultiplier', base: 0.15 },
   { type: 'maxHp',          base: 20 },
   { type: 'maxHpPct',       base: 0.04 },
-  { type: 'defense',        base: 0.03 },
+  { type: 'defense',        base: 0.02 },
   { type: 'attackSpeedPct', base: 0.05 },
   { type: 'dodgeChance',    base: 0.02 },
   { type: 'skillCdrPct',    base: 0.04 },
@@ -80,6 +84,7 @@ export const SALVAGE_VALUE = {
   rare:      8,
   epic:     20,
   legendary: 50,
+  mythic:   150,
 };
 
 // Максимальный уровень прокачки primary affix (cap). Выше нельзя качать.
@@ -89,33 +94,30 @@ export const MAX_UPGRADE_LEVEL_BY_RARITY = {
   rare:      3,
   epic:      4,
   legendary: 6,
+  mythic:   10,
 };
 
 // Стоимость повышения с уровня i на (i+1) в эссенции. Удваивается каждый шаг.
-// L0→L1=5, L1→L2=10, ..., L5→L6=160.
-export const UPGRADE_LEVEL_COSTS = [5, 10, 20, 40, 80, 160];
+// L0→L1=5, L1→L2=10, ..., L9→L10=2560.
+export const UPGRADE_LEVEL_COSTS = [5, 10, 20, 40, 80, 160, 320, 640, 1280, 2560];
 
 // Линейный прирост primary affix за уровень прокачки. L1=+10%, L2=+20%, ..., L6=+60%.
 export const UPGRADE_PRIMARY_PER_LEVEL = 0.10;
 
 // Таблицы редкости дропа по локации. Ключи — id редкости из RARITIES, значения — веса.
-// Кривая растянута под 20 локаций (главы 1-2 Город+Подземка). Пик — на L20+
-// (финал главы 2, Машинист). L10 (финал главы 1, Авторитет) — «эпик становится нормой».
+// Кривая растянута под 40 локаций (главы 1-4). Пик — на L40+ (финал гл.4, Главпрораб).
+// L10/L20/L30/L40 — финалы глав, на milestone'ах дополнительный буст легендарки.
 //
 // На milestone-локациях (см. MILESTONE_LEGENDARY_BOOST в enemies.js) шанс легендарки доп.
 // повышается — награда за «пробитие стенки».
 function rawBossRarityWeights(loc) {
-  if (loc <= 1)  return { common: 60, good: 40 };
-  if (loc <= 2)  return { common: 40, good: 55, rare: 5 };
-  if (loc <= 4)  return { common: 20, good: 60, rare: 20 };
-  if (loc <= 6)  return { good: 50, rare: 45, epic: 5 };
-  if (loc <= 8)  return { good: 30, rare: 55, epic: 14, legendary: 1 };
-  if (loc <= 10) return { good: 15, rare: 55, epic: 27, legendary: 3 };
-  if (loc <= 12) return { rare: 45, epic: 45, legendary: 10 };
-  if (loc <= 14) return { rare: 38, epic: 50, legendary: 12 };
-  if (loc <= 16) return { rare: 32, epic: 53, legendary: 15 };
-  if (loc <= 18) return { rare: 28, epic: 54, legendary: 18 };
-  return                 { rare: 25, epic: 55, legendary: 20 };
+  // Простая 5-зонная кривая, рарка с L5, эпик с L10, лега с L20, мифик с L30.
+  // Лега/мифик намеренно редкие — игрок фармит на сет.
+  if (loc <= 4)  return { common: 60, good: 40 };
+  if (loc <= 9)  return { common: 25, good: 55, rare: 20 };
+  if (loc <= 19) return { good: 30, rare: 55, epic: 15 };
+  if (loc <= 29) return { rare: 30, epic: 60, legendary: 10 };
+  return                 { epic: 60, legendary: 35, mythic: 5 };
 }
 
 export function bossRarityWeights(loc) {
@@ -126,25 +128,22 @@ export function bossRarityWeights(loc) {
 }
 
 export function eliteRarityWeights(loc) {
-  if (loc <= 2)  return { common: 100 };
-  if (loc <= 4)  return { common: 80, good: 20 };
-  if (loc <= 6)  return { common: 60, good: 35, rare: 5 };
-  if (loc <= 8)  return { common: 40, good: 45, rare: 14, epic: 1 };
-  if (loc <= 10) return { common: 25, good: 50, rare: 22, epic: 3 };
-  if (loc <= 13) return { common: 22, good: 47, rare: 26, epic: 4, legendary: 1 };
-  if (loc <= 16) return { common: 18, good: 43, rare: 31, epic: 7, legendary: 1 };
-  if (loc <= 18) return { common: 17, good: 41, rare: 33, epic: 8, legendary: 1 };
-  return                 { common: 15, good: 40, rare: 35, epic: 9, legendary: 1 };
+  // 5 зон, синхронно с boss-кривой. Лега 1-9%, мифик 1% (намного реже чем у босса).
+  if (loc <= 4)  return { common: 100 };
+  if (loc <= 9)  return { common: 70, good: 25, rare: 5 };
+  if (loc <= 19) return { common: 30, good: 55, rare: 12, epic: 3 };
+  if (loc <= 29) return { good: 40, rare: 50, epic: 9, legendary: 1 };
+  return                 { rare: 35, epic: 55, legendary: 9, mythic: 1 };
 }
 
 export function regularRarityWeights(loc) {
-  if (loc <= 6)  return { common: 100 };
-  if (loc <= 9)  return { common: 90, good: 10 };
-  if (loc <= 12) return { common: 75, good: 23, rare: 2 };
-  if (loc <= 14) return { common: 68, good: 26, rare: 6 };
-  if (loc <= 16) return { common: 64, good: 28, rare: 7, epic: 1 };
-  if (loc <= 18) return { common: 62, good: 29, rare: 8, epic: 1 };
-  return                 { common: 60, good: 30, rare: 9, epic: 1 };
+  // Регулярка — самый частый, но шанс топ-рарностей крошечный (lega 0.5%, mythic 0.1%).
+  // Сдвиг по локациям +1 от boss/elite (epic с L11, lega с L21, mythic с L31).
+  if (loc <= 4)  return { common: 100 };
+  if (loc <= 10) return { common: 95, good: 4, rare: 1 };
+  if (loc <= 20) return { common: 70, good: 27, rare: 2.5, epic: 0.5 };
+  if (loc <= 30) return { common: 45, good: 45, rare: 8.5, epic: 1, legendary: 0.5 };
+  return                 { common: 30, good: 45, rare: 19.5, epic: 4.9, legendary: 0.5, mythic: 0.1 };
 }
 
 // Множитель к primary affix от текущего уровня прокачки предмета (линейный).
@@ -152,6 +151,49 @@ export function getPrimaryUpgradeMultiplier(item) {
   const lvl = item?.upgradeLevel | 0;
   return 1 + UPGRADE_PRIMARY_PER_LEVEL * lvl;
 }
+
+// ───────── Уникальные аффиксы легендарок ─────────
+// Дополнительный 5-й аффикс, есть только у `rarity: legendary`. Раскатывается случайно
+// при генерации предмета (см. generateItem в inventory.js).
+//
+// Триггер `autoAttack` — срабатывает в battle.js после каждой авто-атаки героя:
+//   - bleed:    chance × шанс применить DoT по цели (используется enemy.dot/bleedStacks)
+//   - lifesteal: heal героя на pct от нанесённого урона (без шанса — всегда тригерит)
+//   - stun:     chance × шанс положить цель (используется enemy.knockdownUntil)
+//
+// При нескольких надетых легендарках — все их уникальные аффиксы складываются (каждый
+// тикает независимо). Дубликат типа на разных слотах = двойной шанс / двойной хил.
+export const LEGENDARY_UNIQUE_AFFIXES = {
+  bleed: {
+    icon: '🩸',
+    name: 'Кровотечение',
+    description: '15% шанс на удар наложить DoT (20%/с урона × 5с)',
+    trigger: 'autoAttack',
+    chance: 0.15,
+    dotPctPerSec: 0.20,
+    dotDurationSec: 5.0,
+  },
+  lifesteal: {
+    icon: '🧛',
+    name: 'Жажда крови',
+    description: '5% от урона восстанавливает HP — только с критов',
+    trigger: 'autoAttack',
+    chance: 1.0,             // ролл шанса не нужен — гейт сам по triggerOnCritOnly
+    triggerOnCritOnly: true, // лечит только при крит-ударе. Завязывает аффикс на crit-билд.
+    healPct: 0.05,
+  },
+  stun: {
+    icon: '👊',
+    name: 'Тяжёлый кулак',
+    description: '8% шанс на удар оглушить цель (0.6с)',
+    trigger: 'autoAttack',
+    chance: 0.08,
+    stunDurationSec: 0.6,
+  },
+};
+
+// Возвращает массив всех ID уникальных аффиксов (для случайного ролла в generateItem).
+export const LEGENDARY_UNIQUE_TYPES = Object.keys(LEGENDARY_UNIQUE_AFFIXES);
 
 // Слой агрегации: сумма primary + secondary всех надетых предметов для нужного стата.
 // Primary учитывает уровень прокачки; secondary — без изменений (по решению дизайна).

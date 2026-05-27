@@ -5,7 +5,7 @@ import { SKILLS } from '../balance/skills.js';
 import { arenaTypeLabel } from '../balance/enemies.js';
 import { loadoutState, getSkillLevel } from '../core/loadout.js';
 import { SKILL_ICONS } from '../core/skill_meta.js';
-import { localCdRateForSkill } from './battle.js';
+import { localCdRateForSkill, getDashMaxCharges } from './battle.js';
 import * as ftue from '../core/ftue.js';
 
 const $ = (id) => document.getElementById(id);
@@ -65,10 +65,23 @@ export function updateSkillButtons(hero) {
       const remaining = hero.skillCooldowns[skillId] || 0;
       const fullCd = def.baseCooldown / (1 + getEffectiveStat('skillCdrPct') + localCdRateForSkill(skillId));
       const pct = fullCd > 0 ? remaining / fullCd : 0;
-      cd.style.setProperty('--cd-pct', pct);
-      cdText.textContent = remaining > 0 ? remaining.toFixed(1) : '';
+      // L10 dash: показываем `×N` при наличии зарядов (ready). Если заряд 0 — обычный CD-overlay.
+      if (skillId === 'dash' && getDashMaxCharges() > 1) {
+        const ch = hero.dashCharges ?? 1;
+        if (ch > 0) {
+          cd.style.setProperty('--cd-pct', 0);
+          cdText.textContent = `×${ch}`;
+          btn.classList.add('ready');
+        } else {
+          cd.style.setProperty('--cd-pct', pct);
+          cdText.textContent = remaining > 0 ? remaining.toFixed(1) : '';
+        }
+      } else {
+        cd.style.setProperty('--cd-pct', pct);
+        cdText.textContent = remaining > 0 ? remaining.toFixed(1) : '';
+        if (remaining <= 0) btn.classList.add('ready');
+      }
       charges.style.setProperty('--charges-pct', '0%');
-      if (remaining <= 0) btn.classList.add('ready');
     } else if (def.activation === 'charges') {
       const cur = hero.rageCharges;
       const minCh = def.minCharges ?? def.chargesRequired ?? 1;

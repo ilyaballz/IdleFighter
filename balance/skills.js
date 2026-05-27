@@ -1,6 +1,9 @@
 // Скиллы будут активны на Этапе 2. В Этапе 1 файл существует как часть контракта.
 
 // Cap уровня прокачки скиллов. Дальше tryUpgradeSkill отказывает.
+// На MAX_SKILL_LEVEL у каждого скилла открывается l10-перк — уникальная фишка,
+// усиливающая нишу скилла. Параметры перка хранятся в поле `l10` у определения.
+// Включение перка читается через lvl >= MAX_SKILL_LEVEL в battle/battle.js.
 export const MAX_SKILL_LEVEL = 10;
 
 // CDR работает по rate-модели (см. battle/battle.js skillCooldownAfterCdr):
@@ -17,8 +20,14 @@ export const SKILLS = {
     baseDamageMultiplier: 2.0,
     // Marked applier: помечает цель на N секунд → её приоритизируют slam/dash, по ней spinkick бьёт сильнее.
     appliesMarkedSec: 5,
+    // Self-consumer: повторный хук по уже помеченной цели — +20% урона. marked-window (5с) >
+    // cd (4с) → стенд-элоун стак-loop по одной цели: hook ×2.0 → hook ×2.4 → ×2.4...
+    bonusVsMarkedPct: 0.2,
     levelBonusPerLvl: 0.15,
     cdRateBonusPerLvl: 0.10,
+    // L10: marked-стак на цели. Каждый повторный hook = +1 stack (cap 5).
+    // ВСЕ источники урона по помеченной цели получают +N% × stacks (через dealDamage).
+    l10: { markedStackBonusPct: 0.10, markedStackMax: 5 },
   },
   cut: {
     name: 'Рассечение',
@@ -31,22 +40,29 @@ export const SKILLS = {
     dot: { damagePctPerSec: 0.40, durationSec: 7.0 },
     levelBonusPerLvl: 0.15,
     cdRateBonusPerLvl: 0.10,
+    // L10: каждый тик DoT может крит — шанс/мульт со статов игрока (включая баффы).
+    l10: { dotCanCrit: true },
   },
   spinkick: {
     name: 'Вертушка с разворота',
     activation: 'cooldown',
     baseCooldown: 5.0,
     targetType: 'single',
-    baseDamageMultiplier: 2.2,
+    baseDamageMultiplier: 2.0,
     bonusCritChance: 0.50,
     // Marked consumer: по помеченной цели — +60% урона.
     bonusVsMarkedPct: 0.6,
+    // Финишер: гарантированный крит по цели с HP < 50%. Делает spinkick execute-инструментом —
+    // в волне с DoT/auto-атаками вертушка добивает с критом, отделяет нишу от hook/double_strike.
+    forceCritIfBelowHpPct: 0.50,
     // Knockdown — single-target CC, кладёт цель на 0.8с (× lvlMult).
     // Синергии: открывает +60% урона по лежачему для Раунд-кика и +25% для Слэма.
     // На качке отменяет windup. На L10 длительность = 0.8 × (1+9×0.15) = 1.88с.
     knockdownSec: 0.8,
     levelBonusPerLvl: 0.15,
     cdRateBonusPerLvl: 0.10,
+    // L10: killing blow → CD сбрасывается в 0 (chain-режим при добивающих ударах).
+    l10: { resetCdOnKill: true },
   },
   roundkick: {
     name: 'Раунд-кик',
@@ -60,6 +76,8 @@ export const SKILLS = {
     bonusVsKnockedDownPct: 0.6,
     levelBonusPerLvl: 0.25,
     cdRateBonusPerLvl: 0.10,
+    // L10: каждый задетый враг сокращает CD на 0.3с, cap 5 врагов = макс −1.5с.
+    l10: { cdReductionPerHit: 0.3, cdReductionMaxHits: 5 },
   },
   slam: {
     name: 'Прыжок с приземлением',
@@ -78,10 +96,11 @@ export const SKILLS = {
     knockdownSec: 1,
     // Marked: точка приземления = помеченная цель (если есть), иначе ближайший.
     prefersMarkedTarget: true,
-    // Rage synergy: каст 0.8с → 0.4с (молниеносная реакция под Яростью).
-    castDelayMultIfRage: 0.5,
     levelBonusPerLvl: 0.25,
     cdRateBonusPerLvl: 0.10,
+    // L10: после приземления остаётся горящая зона того же радиуса.
+    // DoT тикает каждые 0.5с (см. GROUND_EFFECT_TICK_SEC), dpsPct — доля от damage героя.
+    l10: { groundZoneDurationSec: 3.0, groundZoneDpsPct: 0.25 },
   },
   rage: {
     // Активируется на любом уровне зарядов от minCharges до maxCharges.
@@ -90,6 +109,10 @@ export const SKILLS = {
     //
     // Заряды копятся: chargesPerAutoAttack за авто-атаку + chargesPerSkillCast за каст любого
     // cooldown-скилла. Сама Ярость зарядов не даёт (charges-скилл).
+    //
+    // Огненная аура: пока активна, каждую burnTickSec секунду все живые враги в радиусе
+    // burnRadius получают burnDamagePct от damage героя. Тики НЕ проходят через dealDamage —
+    // это passive aura (не auto-attack), unique-аффиксы (bleed/lifesteal/stun) не триггерятся.
     name: 'Ярость',
     activation: 'charges',
     chargesPerAutoAttack: 1,
@@ -101,7 +124,13 @@ export const SKILLS = {
     targetType: 'self_buff',
     bonusDamagePct: 0.25,
     bonusAttackSpeedPct: 0.25,
+    burnDamagePct: 0.20,
+    burnTickSec: 1.0,
+    burnRadius: 90,
     levelBonusPerLvl: 0.2,
+    // L10: пока Ярость активна — aura радиус ×1.5 и тик ×0.5 (вдвое чаще).
+    // Чисто бустит свою же ауру, не вмешивается в другие системы.
+    l10: { auraRadiusMult: 1.5, auraTickMult: 0.5 },
   },
   breath: {
     name: 'Второе дыхание',
@@ -109,10 +138,19 @@ export const SKILLS = {
     baseCooldown: 30.0,
     targetType: 'self_heal',
     healPctOfMaxHp: 0.30,
-    // Rage synergy: пока активна Ярость, КД ×0.5 → можно отхилиться чаще под прессингом.
-    cdMultiplierIfRage: 0.5,
+    // Adrenaline rush: после каста небольшой offensive-бафф на 5с. Crit — отдельный стат
+    // (не перекрывается с combo's atkSpd), atkSpd — feel «отдышался → быстрее бьёт».
+    // Скейлится с уровнем breath (на lvl 10: +19% atkSpd, +19% crit chance).
+    buffOnUse: {
+      atkSpdBonusPct: 0.10,
+      critChanceBonusPct: 0.10,
+      durationSec: 5.0,
+    },
     levelBonusPerLvl: 0.10,
     cdRateBonusPerLvl: 0.10,
+    // L10: overheal не теряется, превращается в shield на shieldDurationSec.
+    // Shield перезаписывает предыдущий (не стакается). См. damageHero в battle.js.
+    l10: { overhealToShield: true, shieldDurationSec: 10 },
   },
   double_strike: {
     name: 'Двойной удар',
@@ -126,6 +164,8 @@ export const SKILLS = {
     bonusVsBleedingPct: 0.25,
     levelBonusPerLvl: 0.15,
     cdRateBonusPerLvl: 0.10,
+    // L10: +1 удар всегда (=3 хита), +ещё 1 если цель кровит на момент каста (=4 хита).
+    l10: { extraHits: 1, extraHitsIfBleeding: 1 },
   },
   bloodlust: {
     name: 'Кровожадность',
@@ -137,19 +177,20 @@ export const SKILLS = {
     lifestealPct: 0.5,              // 50% от нанесённого урона возвращается в HP
     // Синергия с bleed: лайфстил с кровящих целей умножается (per-enemy).
     bleedLifestealMultiplier: 2.0,
-    // Rage synergy: общий лайфстил ×1.5 пока активна Ярость.
-    lifestealMultiplierIfRage: 1.5,
     minHealPct: 0.10,               // гарантированный минимум — 10% maxHp за каст (на пустую толпу)
     knockback: 25,
     levelBonusPerLvl: 0.25,
     cdRateBonusPerLvl: 0.10,
+    // L10: шанс bleedChance на каждого задетого нанести bleed (новый DoT) — кормит свою же ×bleedLifestealMultiplier.
+    // Не перезаписывает уже кровящих целей. DPS — bleedDpsPct от damage героя.
+    l10: { bleedChance: 0.4, bleedDpsPct: 0.20, bleedDurationSec: 5.0 },
   },
   combo: {
     name: 'Серия',
     activation: 'cooldown',
-    baseCooldown: 5.0,
+    baseCooldown: 4.0,
     targetType: 'single',
-    baseDamageMultiplier: 1.4,
+    baseDamageMultiplier: 1.5,
     buffOnUse: {
       atkSpdBonusPct: 0.30,
       durationSec: 2.5,
@@ -159,6 +200,9 @@ export const SKILLS = {
     },
     levelBonusPerLvl: 0.15,
     cdRateBonusPerLvl: 0.10,
+    // L10: combo-бафф продлевается на extendPerHitSec за каждый auto-hit, но не дольше
+    // maxBuffDurationSec от момента каста. Поощряет «бить непрерывно».
+    l10: { extendPerHitSec: 0.5, maxBuffDurationSec: 5.0 },
   },
   trip: {
     // CC-скилл: AoE вокруг героя, оглушает (knockdown) задетых врагов.
@@ -174,6 +218,8 @@ export const SKILLS = {
     knockback: 20,
     levelBonusPerLvl: 0.15,
     cdRateBonusPerLvl: 0.10,
+    // L10: радиус ×1.3 (100 → 130). Длительность KD не трогаем — она уже растёт с прокачкой.
+    l10: { radiusMult: 1.3 },
   },
   dash: {
     // Mobility/range: рывок к самому дальнему врагу, урон по линии.
@@ -187,10 +233,12 @@ export const SKILLS = {
     pathWidth: 40,
     // Marked consumer: помеченная цель в линии — +50% урона (через dealDamage).
     bonusVsMarkedPct: 0.5,
-    // Rage synergy: ширина полосы рывка ×1.5 пока активна Ярость (захватывает больше врагов).
-    pathWidthMultiplierIfRage: 1.5,
     levelBonusPerLvl: 0.15,
     cdRateBonusPerLvl: 0.10,
+    // L10: 2 последовательных заряда (один CD-таймер, копит до maxCharges=2).
+    // hero.dashCharges хранит текущие заряды; при L10 max повышается до 2.
+    // Каст тратит 1 заряд → CD запускается заново, пока charges < maxCharges.
+    l10: { maxCharges: 2 },
   },
 };
 
@@ -210,7 +258,17 @@ export const GACHA = {
   lockedProbability: 0.75,      // вероятность выпадения закрытого скилла (если есть)
 };
 
-export const SKILL_SHARD_COSTS = [3, 5, 8, 12, 18, 27, 40, 60, 90, 135];
+// Стоимость прокачки скилла L→L+1. Индекс 0 = L1→L2, индекс 8 = L9→L10.
+// Кривая: 5,7,9,...,21 (+2 за шаг) — первый босс (5 шардов) даёт ровно 1 уровень, без скипов.
+// Total К L10 = 117 шардов.
+export const SKILL_SHARD_COSTS = [5, 7, 9, 11, 13, 15, 17, 19, 21];
+
+// Единый конфиг дропа шардов с врагов (используется в core/loadout.js rollShardDropForEnemy).
+// Раньше параметры были раскиданы по 6 *_BASE константам в balance/enemies.js — собрали в одно место.
+export const SHARD_DROP = {
+  perMobChance: 0.05,   // 5% шанс с любого не-boss моба → +1 шард
+  perBossCount:  5,     // фикс. количество шардов с любого босса (без шанса, всегда выпадает)
+};
 
 export function shardCostForLevel(level) {
   // level 1 → cost to reach level 2 = SKILL_SHARD_COSTS[0]

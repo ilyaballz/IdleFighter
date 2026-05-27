@@ -4,7 +4,7 @@
 import { ARENA } from '../balance/visuals.js';
 import {
   arenasForLocation, rollArenaComposition,
-  ENEMY_BASE, ELITE_BASE, RANGED_BASE, HEAVY_BASE, HEALER_BASE, SCALING, BOSS_BASE,
+  ENEMY_BASE, ELITE_BASE, RANGED_BASE, HEAVY_BASE, HEALER_BASE, BOMBER_BASE, SCALING, BOSS_BASE,
   bossStatsForLocation, bossNutDrop, bossEnergyDrop,
   enemyHpMultForLocation, enemyDamageMultForLocation,
 } from '../balance/enemies.js';
@@ -77,11 +77,14 @@ export function scaleEnemyDamage(baseValue, locationIndex, arenaIndex) {
 
 // Возвращает массив "шаблонов" врагов для арены — итерируется по composition.units.
 // Каждый юнит может иметь scaleHp/scaleDmg/scaleRadius — применяются поверх обычного скейлинга.
+// Поле `wave` (default 1) — позиционная группа: wave 1 спавнится ближе к точке входа героя,
+// wave 2 — в глубине арены, добегает позже. Создаёт двух-фазное столкновение без time-delay.
 export function spawnPlanForArena(arena, locationIndex) {
   const out = [];
   for (const u of arena.composition.units) {
+    const wave = u.wave ?? 1;
     for (let i = 0; i < u.count; i++) {
-      out.push(buildEnemyTemplate(u, locationIndex, arena.index));
+      out.push({ template: buildEnemyTemplate(u, locationIndex, arena.index), wave });
     }
   }
   return out;
@@ -89,7 +92,8 @@ export function spawnPlanForArena(arena, locationIndex) {
 
 // Применяет chapter-skin поверх базового template. Возвращает новый объект.
 // Override может содержать name, color, параметрические Mult-поля (moveSpeedMult, attackRangeMult),
-// и boolean-флаги поведения (kiteRetreat).
+// boolean-флаги поведения (kiteRetreat), и молотов-параметры для ranged (aoeLingerDuration/Pct,
+// projectileAoeRadius).
 function applyChapterSkin(template, kind, locationIndex) {
   const skin = getChapterSkin(locationIndex, kind);
   if (!skin) return template;
@@ -103,6 +107,10 @@ function applyChapterSkin(template, kind, locationIndex) {
     out.attackRange = out.attackRange * skin.attackRangeMult;
   }
   if (skin.kiteRetreat) out.kiteRetreat = true;
+  // Молотов-параметры (CHAPTERS[3]/[4].ranged): лужа огня после приземления снаряда.
+  if (skin.aoeLingerDuration != null) out.aoeLingerDuration = skin.aoeLingerDuration;
+  if (skin.aoeLingerDpsPct != null) out.aoeLingerDpsPct = skin.aoeLingerDpsPct;
+  if (skin.projectileAoeRadius != null) out.projectileAoeRadius = skin.projectileAoeRadius;
   return out;
 }
 
@@ -121,6 +129,7 @@ export function buildEnemyTemplate(unit, locationIndex, arenaIndex) {
       hp: stats.hp * sHp,
       damage: stats.damage * sDmg,
       attackSpeed: BOSS_BASE.baseAttackSpeed,
+      armorPen: BOSS_BASE.armorPen || 0,  // боcc игнорит часть defense игрока в damageHero
       moveSpeed: BOSS_BASE.moveSpeed * sSpeed,
       bodyRadius: BOSS_BASE.bodyRadius * sR,
       color: BOSS_BASE.color,
@@ -128,7 +137,7 @@ export function buildEnemyTemplate(unit, locationIndex, arenaIndex) {
       nutDrop: bossNutDrop(locationIndex),
       energyReward: bossEnergyDrop(locationIndex),  // часть от 30 ⚡ — остаток после арена-сплита
     };
-    // Конфиг финального босса главы — добавляет триггер-поля (summonAt / enrageAt).
+    // Конфиг финального босса главы — добавляет триггер-поля (summonAt / enrageAt / dodge / slam).
     // На промежуточных boss-локациях config=null, поля остаются undefined → триггеры не работают.
     const bossCfg = getChapterBossConfig(locationIndex);
     if (bossCfg) {
@@ -143,6 +152,12 @@ export function buildEnemyTemplate(unit, locationIndex, arenaIndex) {
         tmpl.enrageDmgMult = bossCfg.enrageDmgMult;
         tmpl.enrageAtkSpdMult = bossCfg.enrageAtkSpdMult;
         tmpl.enrageDurationSec = bossCfg.enrageDurationSec;
+      }
+      if (bossCfg.dodgeChance != null) tmpl.dodgeChance = bossCfg.dodgeChance;
+      if (bossCfg.windupDuration != null) {
+        tmpl.windupDuration = bossCfg.windupDuration;
+        tmpl.slamRadius = bossCfg.slamRadius;
+        if (bossCfg.attackSpeedOverride != null) tmpl.attackSpeed = bossCfg.attackSpeedOverride;
       }
     }
     return tmpl;
@@ -204,6 +219,25 @@ export function buildEnemyTemplate(unit, locationIndex, arenaIndex) {
       coinDrop: HEALER_BASE.baseCoinDrop * locationIndex,
       aura: HEALER_BASE.aura,    // aura не скейлится на v1 — фиксированная сила/радиус
     }, 'healer', locationIndex);
+  }
+  if (unit.kind === 'bomber') {
+    // Подрывник: на 0 HP стартует death-telegraph, потом AOE-взрыв. Поля deathExplosionDamage /
+    // deathTelegraphDuration / slamRadius читаются в dealDamage и tickBomberDeaths (battle.js).
+    const scaledDmg = scaleEnemyDamage(BOMBER_BASE.baseDamage, locationIndex, arenaIndex);
+    return applyChapterSkin({
+      kind: 'bomber',
+      name: BOMBER_BASE.name,
+      hp: scaleEnemyHp(BOMBER_BASE.baseHp, locationIndex, arenaIndex) * sHp,
+      damage: scaledDmg * sDmg,
+      attackSpeed: BOMBER_BASE.baseAttackSpeed,
+      moveSpeed: BOMBER_BASE.moveSpeed * sSpeed,
+      bodyRadius: BOMBER_BASE.bodyRadius * sR,
+      color: BOMBER_BASE.color,
+      coinDrop: BOMBER_BASE.baseCoinDrop * locationIndex,
+      deathExplosionDamage: scaledDmg * BOMBER_BASE.deathExplosionDmgMult,
+      deathTelegraphDuration: BOMBER_BASE.deathTelegraphDuration,
+      slamRadius: BOMBER_BASE.slamRadius,
+    }, 'bomber', locationIndex);
   }
   // regular
   return applyChapterSkin({
@@ -292,10 +326,15 @@ const KIND_SPAWN_Y_FRAC = {
   boss:          { min: 0.55, max: 0.90 },
 };
 
-export function randomSpawnPos(arena, kind) {
+// Wave 2 спавнится в глубине арены (близко к exit), чтобы добегало после волны 1.
+// Используем фиксированный диапазон 0.80-0.95 — независимо от kind. Позиция = расстояние
+// до героя ≈ 200-300px → ~2-3 секунды на добегание со swarm-speed (90×1.5 = 135 px/s).
+const WAVE2_SPAWN_Y_FRAC = { min: 0.80, max: 0.95 };
+
+export function randomSpawnPos(arena, kind, wave = 1) {
   const pad = ARENA.enemySpawnPadding;
   const x = arena.x + pad + Math.random() * (arena.w - pad * 2);
-  const range = KIND_SPAWN_Y_FRAC[kind];
+  const range = wave === 2 ? WAVE2_SPAWN_Y_FRAC : KIND_SPAWN_Y_FRAC[kind];
   const minFrac = range?.min ?? 0.35;
   const maxFrac = range?.max ?? 1.0;
   const yMin = arena.y + arena.h * minFrac;

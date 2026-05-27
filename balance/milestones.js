@@ -10,22 +10,23 @@
 
 // База Golden Tap после первой разлочки и параметры эскалации.
 const GOLDEN_BASE_CHANCE   = 0.05;  // 5% после 100 тапов на этом тренажёре
-const GOLDEN_XP_MULT       = 1.5;   // ×1.5 XP за золотую зону после 500
+const GOLDEN_XP_MULT       = 2;     // ×2 XP за золотую зону после 200
 const GOLDEN_WIDTH_MULT    = 1.5;   // ×1.5 ширина зоны после 2000
 const MULTITAP_CHANCE      = 0.35;  // 35% шанс каскада после 10000
 const MULTITAP_WIDTH_MULT  = 0.6;   // ×0.6 ширина каскадной зоны от текущей (chain убывает)
 
-// Лесенка milestones (per-trainer lifetimeTaps): 100 / 500 / 2000 / 10000.
+// Лесенка milestones (per-trainer lifetimeTaps): 100 / 200 / 300 / 400.
+// Откалибровано под ~578 тапов на полную прокачку одного стата (1→25):
+// 100=17%, 200=35%, 300=52%, 400=69% — все 4 milestone'а достижимы до single-stat max.
 // Шанс появления Golden — только Кофеваркой в Доме (см. balance/home.js).
-// Milestones даёт «качественные» апгрейды + капстоун-мультитап.
 export const TRAINER_MILESTONES = [
-  { taps: 100,   key: 'unlock',     icon: '☕', label: 'Golden Tap',
+  { taps: 100, key: 'unlock',     icon: '☕', label: 'Golden Tap',
     desc: `Шанс золотой зоны ${Math.round(GOLDEN_BASE_CHANCE * 100)}% с каждого тапа` },
-  { taps: 500,   key: 'xp_mult',    icon: '✨', label: 'XP-буст',
+  { taps: 200, key: 'xp_mult',    icon: '✨', label: 'XP-буст',
     desc: `Золотая зона даёт ×${GOLDEN_XP_MULT} XP` },
-  { taps: 2000,  key: 'width_mult', icon: '📏', label: 'Шире',
+  { taps: 300, key: 'width_mult', icon: '📏', label: 'Шире',
     desc: `Золотая зона ×${GOLDEN_WIDTH_MULT} шире — легче поймать` },
-  { taps: 10000, key: 'multitap',   icon: '🔗', label: 'Мультитап',
+  { taps: 400, key: 'multitap',   icon: '🔗', label: 'Мультитап',
     desc: `Попадание в Golden даёт ${Math.round(MULTITAP_CHANCE * 100)}% шанс мгновенно спавнить ещё одну зону шириной ×${MULTITAP_WIDTH_MULT}` },
 ];
 

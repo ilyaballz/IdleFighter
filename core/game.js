@@ -113,7 +113,7 @@ const world = {
       logEvent('💎 +1 кристалл!', 'crit');
     }
     const shard = rollShardDropForEnemy(enemy);
-    if (shard) logEvent(`+1 шард ${shard.name}`, 'kill');
+    if (shard) logEvent(`+${shard.count} шард${shard.count > 1 ? 'а' : ''} ${shard.name}`, 'kill');
     const item = rollDropForEnemy(enemy, world.location?.locationIndex || 1);
     if (item) {
       addItem(item);

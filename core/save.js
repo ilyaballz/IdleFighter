@@ -61,6 +61,7 @@ export function saveGame() {
         upgradeLevel: it.upgradeLevel | 0,
         primaryAffix: { ...it.primaryAffix },
         affixes: it.affixes.map(a => ({ ...a })),
+        uniqueAffix: it.uniqueAffix ? { ...it.uniqueAffix } : null,
       })),
       equipped: { ...inventoryState.equipped },
       nextItemId: getNextItemId(),

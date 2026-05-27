@@ -95,30 +95,31 @@ export const SCRATCH_CRYSTAL_2MATCH_CHANCE = 0.20;
 // Применение награды (начисление монет/выдача предмета и т.п.) делает core/game.js.
 
 // Награды Бори. Lvl coefficient = barLevel (тот, на котором был бой).
-// 1-match: 100 × lvl, 2-match: 400 × lvl, 3-match: 1500 × lvl.
+// 1-match: 200 × lvl, 2-match: 600 × lvl, 3-match: 1800 × lvl.
 function rewardCoins(barLevel, tier) {
-  const base = tier === 3 ? 1500 : tier === 2 ? 400 : 100;
+  const base = tier === 3 ? 1800 : tier === 2 ? 600 : 200;
   const amount = base * Math.max(1, barLevel);
   return { kind: 'coins', amount, label: `+${amount}💰` };
 }
 
-// Награды Вити. Редкость предмета по тиру: 1=common, 2=good, 3=rare.
+// Награды Вити. Редкость предмета по тиру: 1=good, 2=rare, 3=epic.
+// Common из бара выпилен — на эндгейме он мусорный, не оправдывает билет.
 function rewardItem(_barLevel, tier) {
-  const rarity = tier === 3 ? 'rare' : tier === 2 ? 'good' : 'common';
-  const label = `+1 шмот [${rarity === 'rare' ? 'РЕДКИЙ' : rarity === 'good' ? 'ХОРОШИЙ' : 'ОБЫЧНЫЙ'}]`;
+  const rarity = tier === 3 ? 'epic' : tier === 2 ? 'rare' : 'good';
+  const label = `+1 шмот [${rarity === 'epic' ? 'ЭПИК' : rarity === 'rare' ? 'РЕДКИЙ' : 'ХОРОШИЙ'}]`;
   return { kind: 'item', rarity, label };
 }
 
-// Награды Жорика. 1-match: 5 шардов. 2-match: 15 шардов. 3-match: 1 жетон гачи + 30 шардов.
+// Награды Жорика. 1-match: 10 шардов. 2-match: 25 шардов. 3-match: 1 жетон гачи + 50 шардов.
 function rewardShards(_barLevel, tier) {
-  if (tier === 3) return { kind: 'shards_plus_token', shards: 30, gachaTokens: 1, label: '+1🎰 +30 шардов' };
-  if (tier === 2) return { kind: 'shards', shards: 15, label: '+15 шардов' };
-  return { kind: 'shards', shards: 5, label: '+5 шардов' };
+  if (tier === 3) return { kind: 'shards_plus_token', shards: 50, gachaTokens: 1, label: '+1🎰 +50 шардов' };
+  if (tier === 2) return { kind: 'shards', shards: 25, label: '+25 шардов' };
+  return { kind: 'shards', shards: 10, label: '+10 шардов' };
 }
 
-// Награды Олега. 20 / 80 / 250 эссенции.
+// Награды Олега. 40 / 120 / 300 эссенции.
 function rewardEssence(_barLevel, tier) {
-  const amount = tier === 3 ? 250 : tier === 2 ? 80 : 20;
+  const amount = tier === 3 ? 300 : tier === 2 ? 120 : 40;
   return { kind: 'essence', amount, label: `+${amount}🔮` };
 }
 
@@ -149,7 +150,7 @@ export function previewRewardLabel(opponent) {
   switch (opponent.rewardType) {
     case 'coins':   return '💰 монеты';
     case 'item':    return '👕 предмет';
-    case 'shards':  return '💎 шарды';
+    case 'shards':  return '✦ шарды';
     case 'essence': return '🔮 эссенция';
     case 'jackpot': return '🎰 шмот высокой редкости';
     default:        return '???';
@@ -161,7 +162,7 @@ export function scratchTargetIcon(opponent) {
   switch (opponent.rewardType) {
     case 'coins':   return '💰';
     case 'item':    return '👕';   // как в гардеробе — соответствует «шмот»
-    case 'shards':  return '💎';
+    case 'shards':  return '✦';
     case 'essence': return '🔮';
     case 'jackpot': return '🎰';
     default:        return '⭐';

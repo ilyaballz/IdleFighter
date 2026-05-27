@@ -2,7 +2,7 @@
 // Сами цифры — в balance/skills.js. Здесь только презентация — но с учётом
 // текущих статов героя и уровня скилла, чтобы чипы показывали живые числа.
 
-import { SKILLS } from '../balance/skills.js';
+import { SKILLS, MAX_SKILL_LEVEL } from '../balance/skills.js';
 import { getEffectiveStat } from './stats_layer.js';
 import { getSkillLevel } from './loadout.js';
 
@@ -147,25 +147,55 @@ export function describeSkillSynergies(id) {
     const pct = Math.round(s.buffOnUse.critChanceBonusIfTagged * 100);
     lines.push(`✨ +${pct}% крит-шанс если на цели любой тег`);
   }
+  if (s.buffOnUse?.critChanceBonusPct) {
+    const pct = Math.round(s.buffOnUse.critChanceBonusPct * 100);
+    lines.push(`✨ +${pct}% крит-шанс на ${s.buffOnUse.durationSec}с после каста`);
+  }
+
+  // ─ Self-buff aura specials (для Ярости) ─
+  if (s.burnDamagePct && s.burnTickSec) {
+    const pct = Math.round(s.burnDamagePct * 100);
+    lines.push(`🔥 огонь: +${pct}% урона/${s.burnTickSec}с в радиусе ${s.burnRadius}`);
+  }
+
+  // ─ Execute / финишер ─
+  if (s.forceCritIfBelowHpPct) {
+    const pct = Math.round(s.forceCritIfBelowHpPct * 100);
+    lines.push(`💀 гарант. крит по цели < ${pct}% HP`);
+  }
 
   // ─ Таргетинг ─
   if (s.prefersMarkedTarget) lines.push('🎯 приоритет помеченной цели');
 
-  // ─ Rage synergy: модификаторы при активной Ярости ─
-  if (s.cdMultiplierIfRage) {
-    lines.push(`🔥 КД ×${s.cdMultiplierIfRage} при Ярости`);
-  }
-  if (s.castDelayMultIfRage) {
-    lines.push(`🔥 каст ×${s.castDelayMultIfRage} при Ярости`);
-  }
-  if (s.lifestealMultiplierIfRage) {
-    lines.push(`🔥 ×${s.lifestealMultiplierIfRage} лайфстил при Ярости`);
-  }
-  if (s.pathWidthMultiplierIfRage) {
-    lines.push(`🔥 ширина полосы ×${s.pathWidthMultiplierIfRage} при Ярости`);
-  }
-
   return lines;
+}
+
+// ───────── L10-перки ─────────
+// Уникальные фишки, которые открываются на максимальном уровне скилла. Описания статичны
+// (по skillId), поскольку каждый перк — отдельная механика; шаблонизировать не имеет смысла.
+// describeL10Perk возвращает { text, unlocked } — UI рендерит как «закрытую» подсказку
+// «откроется на L10» или как активную фишку с галочкой.
+
+const L10_PERK_TEXTS = {
+  hook:          '🎯 marked стак: +10% урона от всех источников за стак (cap 5)',
+  cut:           '🩸 каждый тик кровотечения может крит (статы игрока)',
+  spinkick:      '💀 добивающий удар сбрасывает КД в 0',
+  roundkick:     '⏱ −0.3с КД за каждого задетого (cap 5)',
+  slam:          '🔥 после приземления остаётся горящая зона (3с, 25% damage/с)',
+  rage:          '🔥 аура: радиус ×1.5, тики вдвое чаще',
+  breath:        '🛡 overheal превращается в щит (10с, перезапись)',
+  double_strike: '🤜 +1 удар всегда, ещё +1 по кровящей цели',
+  bloodlust:     '🩸 40% шанс повесить bleed на каждого задетого',
+  combo:         '⚡ бафф продлевается +0.5с за каждый auto-hit (cap 5с)',
+  trip:          '◎ радиус +30% (100 → 130)',
+  dash:          '🏃 +1 заряд — два рывка подряд',
+};
+
+export function describeL10Perk(id) {
+  const text = L10_PERK_TEXTS[id];
+  if (!text) return null;
+  const unlocked = getSkillLevel(id) >= MAX_SKILL_LEVEL;
+  return { text, unlocked };
 }
 
 // Тон пилюли по ведущему эмодзи — для лёгкого цветового кода в UI.

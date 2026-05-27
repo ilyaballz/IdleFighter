@@ -520,6 +520,43 @@
     gap: 4px 12px;
     font-size: 13px;
   }
+  .item-card .affix-unique {
+    margin: 6px 0;
+    padding: 6px 8px;
+    border-left: 3px solid var(--unique-color);
+    background: color-mix(in srgb, var(--unique-color) 12%, transparent);
+    border-radius: 3px;
+    color: var(--unique-color);
+    font-size: 12px;
+    line-height: 1.35;
+  }
+  .item-card .affix-unique-label {
+    font-family: 'Bungee', sans-serif;
+    font-size: 9px;
+    letter-spacing: 1.5px;
+    opacity: 0.75;
+    margin-bottom: 2px;
+  }
+  .item-card .affix-unique-body {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px;
+  }
+  .item-card .affix-unique-icon {
+    font-size: 15px;
+  }
+  .item-card .affix-unique-name {
+    font-family: 'Bungee', sans-serif;
+    letter-spacing: 0.5px;
+    margin-right: 2px;
+  }
+  .item-card .affix-unique-desc {
+    color: var(--text-secondary, #cbd5e1);
+    font-size: 11.5px;
+    flex: 1;
+    min-width: 0;
+  }
   .item-card .affix-pill {
     color: var(--neon-cyan);
     font-family: 'Bungee', sans-serif;
@@ -1380,6 +1417,32 @@
   .skill-card .synergy-pill.mark  { border-color: var(--neon-cyan); }
   .skill-card .synergy-pill.rage  { border-color: #ff8a3f; }
   .skill-card .synergy-pill.crit  { border-color: var(--neon-pink); }
+  .skill-card .l10-perk {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    margin-top: 8px;
+    padding: 5px 8px;
+    border: 1px dashed #5a4a82;
+    border-radius: 4px;
+    font-size: 12px;
+    line-height: 1.3;
+    background: #15102a;
+  }
+  .skill-card .l10-perk.unlocked {
+    border-style: solid;
+    border-color: var(--neon-yellow);
+    background: #1f1a05;
+    box-shadow: 0 0 6px rgba(255, 210, 63, 0.25);
+  }
+  .skill-card .l10-perk .l10-badge {
+    color: var(--neon-yellow);
+    font-weight: bold;
+    white-space: nowrap;
+  }
+  .skill-card .l10-perk.locked .l10-badge { color: #6b5fa0; }
+  .skill-card .l10-perk .l10-text { color: var(--text); }
+  .skill-card .l10-perk.locked .l10-text { color: #8a7fb0; }
   .skill-card .locked-note {
     margin-top: 8px;
     color: var(--neon-pink);

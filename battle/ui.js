@@ -5,7 +5,7 @@ import { SKILLS } from '../balance/skills.js';
 import { arenaTypeLabel } from '../balance/enemies.js';
 import { loadoutState, getSkillLevel } from '../core/loadout.js';
 import { SKILL_ICONS } from '../core/skill_meta.js';
-import { localCdRateForSkill, getDashMaxCharges } from './battle.js';
+import { skillCooldownAfterCdr, getDashMaxCharges } from './battle.js';
 import * as ftue from '../core/ftue.js';
 
 const $ = (id) => document.getElementById(id);
@@ -63,7 +63,7 @@ export function updateSkillButtons(hero) {
 
     if (def.activation === 'cooldown') {
       const remaining = hero.skillCooldowns[skillId] || 0;
-      const fullCd = def.baseCooldown / (1 + getEffectiveStat('skillCdrPct') + localCdRateForSkill(skillId));
+      const fullCd = skillCooldownAfterCdr(def.baseCooldown, skillId);
       const pct = fullCd > 0 ? remaining / fullCd : 0;
       // L10 dash: показываем `×N` при наличии зарядов (ready). Если заряд 0 — обычный CD-overlay.
       if (skillId === 'dash' && getDashMaxCharges() > 1) {

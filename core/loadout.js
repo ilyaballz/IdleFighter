@@ -25,10 +25,6 @@ export function isUnlocked(skillId) {
   return loadoutState.unlocked.includes(skillId);
 }
 
-export function getLockedSkills() {
-  return Object.keys(SKILLS).filter(id => !loadoutState.unlocked.includes(id));
-}
-
 export function unlockSkill(skillId) {
   if (!SKILLS[skillId]) return false;
   if (loadoutState.unlocked.includes(skillId)) return false;
@@ -103,14 +99,6 @@ export function setSlot(slotIdx, skillId) {
   }
   loadoutState.selected[slotIdx] = skillId;
   return true;
-}
-
-export function getSelectedSkills() {
-  return loadoutState.selected.map(id => id ? { id, def: SKILLS[id], level: loadoutState.levels[id] } : null);
-}
-
-export function isLoadoutValid() {
-  return loadoutState.selected.every(id => id && isUnlocked(id));
 }
 
 export function getSkillLevel(skillId) {

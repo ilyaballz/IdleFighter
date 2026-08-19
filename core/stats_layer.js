@@ -120,12 +120,29 @@ export function computeEffectiveStat(
   }
 }
 
-// Основная игровая обёртка — берёт состояние из live state.
+// ── Кэш эффективных статов ──
+// Эффективные статы зависят только от уровней / эквипа / стикеров / множителя тренажёра —
+// всё это НЕ меняется во время боя. Поэтому считаем лениво и держим результат до явной
+// инвалидации (equip/upgrade/level-up/загрузка сейва/старт забега). В бою getEffectiveStat
+// зовётся ~10-20×/кадр — без кэша каждый вызов пересканировал бы весь инвентарь (findItem × слоты).
+// computeEffectiveStat (чистая версия для симулятора) кэш НЕ использует — она без сайд-эффектов.
+let _statCache = {};
+
+export function invalidateEffectiveStats() {
+  _statCache = {};
+}
+
+// Основная игровая обёртка — берёт состояние из live state (через кэш).
 export function getEffectiveStat(statName) {
-  return computeEffectiveStat(statName, heroState.levels, getEquippedItems(), getTrainerStatMultiplier, getStickerBonus);
+  const cached = _statCache[statName];
+  if (cached !== undefined) return cached;
+  const v = computeEffectiveStat(statName, heroState.levels, getEquippedItems(), getTrainerStatMultiplier, getStickerBonus);
+  _statCache[statName] = v;
+  return v;
 }
 
 export function resetHeroForNewRun() {
+  invalidateEffectiveStats();   // старт забега — статы могли поменяться в хабе
   heroState.currentHp = getEffectiveStat('maxHp');
 }
 
@@ -147,6 +164,7 @@ export function addStatXp(stat, amount) {
   if (heroState.levels[stat] >= cap) {
     heroState.xp[stat] = 0;
   }
+  if (leveled) invalidateEffectiveStats();   // уровень стата вырос → статы пересчитать
   return leveled;
 }
 
@@ -162,5 +180,6 @@ export function resetAllProgression() {
     heroState.levels[s] = 1;
     heroState.xp[s] = 0;
   }
+  invalidateEffectiveStats();
   heroState.currentHp = getEffectiveStat('maxHp');
 }

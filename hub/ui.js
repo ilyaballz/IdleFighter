@@ -1,7 +1,7 @@
 // UI хаба: карточки тренажёров, лоадаут, гача, гардероб, тап-оверлей, навигация под-экранов.
 
-import { getEffectiveStat, getStatXpProgress } from '../core/stats_layer.js';
-import { SKILLS, GACHA } from '../balance/skills.js';
+import { getEffectiveStat, getStatXpProgress, invalidateEffectiveStats } from '../core/stats_layer.js';
+import { SKILLS } from '../balance/skills.js';
 import { STAT_BONUSES } from '../balance/player.js';
 import { TAP_BAR, ENERGY, FATIGUE } from '../balance/training.js';
 import {
@@ -31,8 +31,9 @@ import {
   SKILL_ICONS, SKILL_SHORT_NAMES,
   describeSkillChips, describeSkillSynergies, synergyTone, describeL10Perk,
 } from '../core/skill_meta.js';
+import { STAT_META } from '../core/stat_meta.js';
 import {
-  TRAINER_MILESTONES, reachedMilestones, nextMilestone,
+  reachedMilestones, nextMilestone,
 } from '../balance/milestones.js';
 import {
   STICKERS, STICKER_SETS, stickerIdsInSet,
@@ -167,6 +168,9 @@ function refreshCurrentHubScreen() {
 let activeSlotIdx = null;
 
 export function renderHub() {
+  // Хаб — единственное место, где статы могут измениться (экип/апгрейд/тренажёры/стикеры).
+  // Сбрасываем кэш на каждый рендер хаба; в бою renderHub не зовётся, поэтому кэш там держится.
+  invalidateEffectiveStats();
   $('hub-loc-info').textContent = `ЛОКАЦИЯ ${hubState.currentLocationIndex}`;
   $('hub-coins').textContent = `💰 ${currentCoins()}`;
   const nutsEl = $('hub-nuts');
@@ -187,7 +191,7 @@ export function renderHub() {
   refreshCurrentHubScreen();
 }
 
-const RARITY_RANK = { common: 1, good: 2, rare: 3, epic: 4, legendary: 5 };
+const RARITY_RANK = { common: 1, good: 2, rare: 3, epic: 4, legendary: 5, mythic: 6 };
 
 // Сравнение «лучше ли вещь надетой в её слоте». Критерий: сначала редкость,
 // при равенстве — эффективное значение primary-аффикса с учётом апгрейда.
@@ -274,18 +278,19 @@ function renderStatsPanel() {
   const root = $('stats-panel');
   if (!root) return;
   const items = [
-    { label: 'HP',        value: Math.round(getEffectiveStat('maxHp')) },
-    { label: 'УРОН',      value: getEffectiveStat('damage').toFixed(1) },
-    { label: 'СК.АТАКИ',  value: getEffectiveStat('attackSpeed').toFixed(2) + '/с' },
-    { label: 'КРИТ',      value: (getEffectiveStat('critChance') * 100).toFixed(1) + '%' },
-    { label: 'МУЛ.КРИТА', value: '×' + getEffectiveStat('critMultiplier').toFixed(2) },
-    { label: 'УВОРОТ',    value: (getEffectiveStat('dodgeChance') * 100).toFixed(1) + '%' },
-    { label: 'ЗАЩИТА',    value: (getEffectiveStat('defense') * 100).toFixed(1) + '%' },
-    { label: 'CDR СКИЛЛ', value: (getEffectiveStat('skillCdrPct') * 100).toFixed(1) + '%' },
+    { stat: 'maxHp',          value: Math.round(getEffectiveStat('maxHp')) },
+    { stat: 'damage',         value: getEffectiveStat('damage').toFixed(1) },
+    { stat: 'attackSpeed',    value: getEffectiveStat('attackSpeed').toFixed(2) + '/с' },
+    { stat: 'critChance',     value: (getEffectiveStat('critChance') * 100).toFixed(1) + '%' },
+    { stat: 'critMultiplier', value: '×' + getEffectiveStat('critMultiplier').toFixed(2) },
+    { stat: 'dodgeChance',    value: (getEffectiveStat('dodgeChance') * 100).toFixed(1) + '%' },
+    { stat: 'defense',        value: (getEffectiveStat('defense') * 100).toFixed(1) + '%' },
+    { stat: 'skillCdrPct',    value: (getEffectiveStat('skillCdrPct') * 100).toFixed(1) + '%' },
   ];
-  root.innerHTML = items.map(it => `
-    <div class="stat-row"><span class="lbl">${it.label}</span><span class="val">${it.value}</span></div>
-  `).join('');
+  root.innerHTML = items.map(it => {
+    const m = STAT_META[it.stat];
+    return `<div class="stat-row"><span class="lbl">${m.icon} ${m.label}</span><span class="val">${it.value}</span></div>`;
+  }).join('');
 }
 
 let coinsAccessor = () => 0;
@@ -420,8 +425,8 @@ export function bindHubActions(handlers) {
 function formatHomeValue(buildingId, value, tier) {
   if (buildingId === 'couch') {
     // Показываем не множитель, а сколько секунд до полной батарейки.
-    // База: 1/6 ⚡/с при value=1 → 600c. value 2.5 → 240c.
-    const baseRecover = 1 / 6;
+    // База берётся из balance/training.js (ENERGY.recoverPerSec), value = множитель Дивана.
+    const baseRecover = ENERGY.recoverPerSec;
     const cap = getEffectiveEnergyMax();
     const sec = cap / (baseRecover * value);
     return `${value}× (${Math.round(sec / 60)}мин до full)`;
@@ -1343,19 +1348,18 @@ export function bindTapButton(onTap) {
 
 // ───────── Гардероб ─────────
 
-let currentWardrobeSlot = 'fists';
-
+// Иконки/лейблы берутся из общего STAT_META (core/stat_meta.js) — тут только форматтер значения.
 const STAT_DISPLAY = {
-  damage:         { icon: '⚔', label: 'УРОН',     fmt: (v) => `+${v}` },
-  damagePct:      { icon: '⚔', label: 'УРОН %',   fmt: (v) => `+${(v * 100).toFixed(1)}%` },
-  critChance:     { icon: '✨', label: 'КРИТ',     fmt: (v) => `+${(v * 100).toFixed(1)}%` },
-  critMultiplier: { icon: '💥', label: 'МУЛ.КРИТ', fmt: (v) => `+${v.toFixed(2)}×` },
-  maxHp:          { icon: '❤', label: 'HP',       fmt: (v) => `+${v}` },
-  maxHpPct:       { icon: '❤', label: 'HP %',     fmt: (v) => `+${(v * 100).toFixed(1)}%` },
-  defense:        { icon: '🛡', label: 'ЗАЩИТА',   fmt: (v) => `+${(v * 100).toFixed(1)}%` },
-  attackSpeedPct: { icon: '⚡', label: 'СК.АТК',   fmt: (v) => `+${(v * 100).toFixed(1)}%` },
-  dodgeChance:    { icon: '💨', label: 'УВОРОТ',   fmt: (v) => `+${(v * 100).toFixed(1)}%` },
-  skillCdrPct:    { icon: '⏳', label: 'CDR',      fmt: (v) => `+${(v * 100).toFixed(1)}%` },
+  damage:         { ...STAT_META.damage,         fmt: (v) => `+${v}` },
+  damagePct:      { ...STAT_META.damagePct,      fmt: (v) => `+${(v * 100).toFixed(1)}%` },
+  critChance:     { ...STAT_META.critChance,     fmt: (v) => `+${(v * 100).toFixed(1)}%` },
+  critMultiplier: { ...STAT_META.critMultiplier, fmt: (v) => `+${v.toFixed(2)}×` },
+  maxHp:          { ...STAT_META.maxHp,          fmt: (v) => `+${v}` },
+  maxHpPct:       { ...STAT_META.maxHpPct,       fmt: (v) => `+${(v * 100).toFixed(1)}%` },
+  defense:        { ...STAT_META.defense,        fmt: (v) => `+${(v * 100).toFixed(1)}%` },
+  attackSpeedPct: { ...STAT_META.attackSpeedPct, fmt: (v) => `+${(v * 100).toFixed(1)}%` },
+  dodgeChance:    { ...STAT_META.dodgeChance,    fmt: (v) => `+${(v * 100).toFixed(1)}%` },
+  skillCdrPct:    { ...STAT_META.skillCdrPct,    fmt: (v) => `+${(v * 100).toFixed(1)}%` },
 };
 
 function primaryStatHtml(aff, item) {
@@ -1378,168 +1382,305 @@ function affixPillHtml(aff) {
   return `<span class="affix-pill"><span class="pill-icon">${icon}</span>${val}<span class="pill-label">${label}</span></span>`;
 }
 
-function renderItemCard(item, isEquipped) {
+// (renderItemCard удалён — карточка предмета теперь строится в wardCompareCardHtml
+//  внутри окна сравнения гардероба.)
+
+// ───────── Гардероб: paper-doll + сташ + окно сравнения ─────────
+
+const WARD_SLOTS_LEFT  = ['fists', 'chain', 'sneakers'];   // атака
+const WARD_SLOTS_RIGHT = ['jacket', 'bandana', 'bracers']; // защита/утилити
+
+// Заголовочные плитки гардероба. Иконка/лейбл — из STAT_META, тут только форматтер значения.
+const WARD_TILES = [
+  { stat: 'maxHp',   fmt: (v) => Math.round(v).toLocaleString('ru-RU') },
+  { stat: 'damage',  fmt: (v) => Math.round(v).toLocaleString('ru-RU') },
+  { stat: 'defense', fmt: (v) => `${Math.round(v * 100)}%` },
+];
+
+// Тотальный порядок «сильнее»: редкость↓, при равной — эффективный primary↓.
+// Совпадает по духу с isItemBetterThanEquipped — используется для сортировки и auto-equip.
+function wardRankCmp(a, b) {
+  const rr = (RARITY_RANK[b.rarity] || 0) - (RARITY_RANK[a.rarity] || 0);
+  if (rr) return rr;
+  return b.primaryAffix.value * getPrimaryUpgradeMultiplier(b)
+       - a.primaryAffix.value * getPrimaryUpgradeMultiplier(a);
+}
+
+// Есть ли в сташе предмет «лучше надетого» для слота (или слот пуст, а кандидат есть).
+function wardBetterAvailable(slotId) {
+  const items = getItemsForSlot(slotId);
+  if (items.length === 0) return false;
+  if (!inventoryState.equipped[slotId]) return true;
+  return items.some((it) => isItemBetterThanEquipped(it));
+}
+
+function wardSlotHtml(slotId) {
+  const slot = EQUIPMENT_SLOTS[slotId];
+  const eq = getEquippedItemForSlot(slotId);
+  const arrow = wardBetterAvailable(slotId) ? '<span class="ward-slot-arrow">▲</span>' : '';
+  if (!eq) {
+    return `<button class="ward-slot empty" data-slot="${slotId}" title="${slot.name}">
+      <span class="ward-slot-ic ghost">${slot.icon}</span>${arrow}
+    </button>`;
+  }
+  const r = RARITIES[eq.rarity];
+  const up = eq.upgradeLevel | 0;
+  const upB = up > 0 ? `<span class="ward-slot-up">+${up}</span>` : '';
+  return `<button class="ward-slot" data-slot="${slotId}" title="${slot.name}" style="--rc:${r.color}">
+    <span class="ward-slot-ic">${slot.icon}</span>${upB}${arrow}
+  </button>`;
+}
+
+function renderWardrobe() {
+  // equip/unequip/auto-equip зовут renderWardrobe напрямую (минуя renderHub) — сбрасываем
+  // кэш, чтобы стат-плитки показали свежие значения после смены шмота.
+  invalidateEffectiveStats();
+  _salvageAllArmed = false;   // вход на экран/ре-рендер снимает «взвод» кнопки распыла
+  const doll = $('ward-paperdoll');
+  if (doll) {
+    const left  = WARD_SLOTS_LEFT.map(wardSlotHtml).join('');
+    const right = WARD_SLOTS_RIGHT.map(wardSlotHtml).join('');
+    const tiles = WARD_TILES.map((t) => {
+      const m = STAT_META[t.stat];
+      const v = getEffectiveStat(t.stat);
+      return `<div class="stat-chip"><div class="ic">${m.icon}</div>
+        <div class="val">${t.fmt(v)}</div><div class="lbl">${m.label}</div></div>`;
+    }).join('');
+    doll.innerHTML = `
+      <div class="ward-doll">
+        <div class="ward-col">${left}</div>
+        <div class="ward-center">
+          <div class="ward-hero"><div class="ward-hero-fig"></div></div>
+        </div>
+        <div class="ward-col">${right}</div>
+      </div>
+      <div class="stat-chips">${tiles}</div>`;
+    doll.querySelectorAll('.ward-slot').forEach((b) =>
+      b.addEventListener('click', () => openWardCompare(b.dataset.slot)));
+  }
+  renderWardStash();
+}
+
+function wardStashCellHtml(item) {
+  const slot = EQUIPMENT_SLOTS[item.slot];
+  const r = RARITIES[item.rarity];
+  const up = item.upgradeLevel | 0;
+  const upB = up > 0 ? `<span class="stash-cell-up">+${up}</span>` : '';
+  const arrow = isItemBetterThanEquipped(item) ? '<span class="stash-cell-arrow">▲</span>' : '';
+  return `<button class="stash-cell" data-slot="${item.slot}" data-item-id="${item.id}" style="--rc:${r.color}">
+    <span class="stash-cell-ic">${slot.icon}</span>${upB}${arrow}
+  </button>`;
+}
+
+function renderWardStash() {
+  const root = $('ward-stash');
+  if (!root) return;
+  const equippedIds = new Set(Object.values(inventoryState.equipped).filter(Boolean));
+  const items = inventoryState.items.filter((it) => !equippedIds.has(it.id));
+  items.sort(wardRankCmp);
+  const cells = items.map(wardStashCellHtml).join('');
+  const salvageGain = items.reduce((s, it) => s + getItemSalvageValue(it), 0);
+  const canSalvage = items.length > 0;
+  const salvageLabel = _salvageAllArmed ? `♻ Точно? +${salvageGain}🔮` : '♻ Распылить';
+  root.innerHTML = `
+    <div class="ward-stash-head">
+      <button class="stash-act equip-all" id="ward-equip-all">⚡ Одеть лучшее</button>
+      <span class="ward-stash-title">СТАШ · ${items.length}</span>
+      <button class="stash-act salvage-all${_salvageAllArmed ? ' armed' : ''}" id="ward-salvage-all"${canSalvage ? '' : ' disabled'}>${salvageLabel}</button>
+    </div>
+    <div class="ward-stash-grid">${cells || '<div class="ward-empty">Инвентарь пуст</div>'}</div>`;
+  root.querySelectorAll('.stash-cell').forEach((c) =>
+    c.addEventListener('click', () => openWardCompare(c.dataset.slot, c.dataset.itemId)));
+  $('ward-equip-all').addEventListener('click', autoEquipBest);
+  const salBtn = $('ward-salvage-all');
+  if (salBtn && canSalvage) salBtn.addEventListener('click', onSalvageAllClick);
+}
+
+// Суммарный вклад предмета по типам статов (primary с учётом апгрейда + вторичные).
+function wardItemStatMap(item) {
+  const m = {};
+  const pt = item.primaryAffix.type;
+  m[pt] = (m[pt] || 0) + item.primaryAffix.value * getPrimaryUpgradeMultiplier(item);
+  for (const a of item.affixes) m[a.type] = (m[a.type] || 0) + a.value;
+  return m;
+}
+
+// Дельты статов кандидата относительно надетого (зелёный + / красный −).
+function wardDeltaHtml(cand, equipped) {
+  if (!equipped) return '';
+  const cm = wardItemStatMap(cand);
+  const em = wardItemStatMap(equipped);
+  const types = new Set([...Object.keys(cm), ...Object.keys(em)]);
+  const rows = [];
+  for (const t of types) {
+    let d = (cm[t] || 0) - (em[t] || 0);
+    const isInt = t === 'damage' || t === 'maxHp';
+    if (isInt) d = Math.round(d);
+    if (Math.abs(d) < (isInt ? 0.5 : 1e-6)) continue;
+    const meta = STAT_DISPLAY[t];
+    const label = meta?.label || t.toUpperCase();
+    const icon = meta?.icon || '';
+    const body = meta ? meta.fmt(Math.abs(d)).replace(/^\+/, '') : String(Math.abs(d));
+    rows.push(`<span class="cmp-delta ${d > 0 ? 'up' : 'down'}">${icon} ${d > 0 ? '+' : '−'}${body} ${label}</span>`);
+  }
+  return `<div class="cmp-deltas">${rows.length ? rows.join('') : '<span class="cmp-delta flat">= статы те же</span>'}</div>`;
+}
+
+// Карточка предмета в окне сравнения (переиспользует стили .item-card).
+function wardCompareCardHtml(item, { isEquipped, equipped }) {
   const r = RARITIES[item.rarity];
   const slot = EQUIPMENT_SLOTS[item.slot];
-  const div = document.createElement('div');
-  div.className = 'item-card' + (isEquipped ? ' equipped' : '');
-  div.dataset.itemId = item.id;
-  div.style.borderColor = r.color;
-
-  const upLvl = item.upgradeLevel | 0;
+  const up = item.upgradeLevel | 0;
   const upMax = getItemUpgradeMaxLevel(item);
   const atMax = isItemAtMaxUpgrade(item);
-  const upBadgeHtml = upLvl > 0
-    ? `<span class="upgrade-badge${atMax ? ' max' : ''}">+${upLvl}${atMax ? ' MAX' : ''}</span>`
-    : '';
-  const betterBadgeHtml = !isEquipped && isItemBetterThanEquipped(item)
-    ? '<span class="better-badge">↑ ЛУЧШЕ НАДЕТОГО</span>'
-    : '';
-
-  const affixesHtml = item.affixes.length
-    ? `<div class="affix-line">${item.affixes.map(affixPillHtml).join('')}</div>`
-    : '';
-
-  // Уникальный аффикс — только у легендарок. Выделен сильнее secondary: цвет редкости,
-  // полоса слева, фоновая заливка, подпись «УНИКАЛЬНЫЙ».
+  const upBadge = up > 0 ? `<span class="upgrade-badge${atMax ? ' max' : ''}">+${up}${atMax ? ' MAX' : ''}</span>` : '';
   const uniqueDef = item.uniqueAffix ? LEGENDARY_UNIQUE_AFFIXES[item.uniqueAffix.type] : null;
   const uniqueHtml = uniqueDef
     ? `<div class="affix-unique" style="--unique-color:${r.color}">
          <div class="affix-unique-label">УНИКАЛЬНЫЙ</div>
-         <div class="affix-unique-body">
-           <span class="affix-unique-icon">${uniqueDef.icon}</span>
+         <div class="affix-unique-body"><span class="affix-unique-icon">${uniqueDef.icon}</span>
            <span class="affix-unique-name">${uniqueDef.name}</span>
-           <span class="affix-unique-desc">${uniqueDef.description}</span>
-         </div>
-       </div>`
+           <span class="affix-unique-desc">${uniqueDef.description}</span></div></div>`
     : '';
+  const affixesHtml = item.affixes.length
+    ? `<div class="affix-line">${item.affixes.map(affixPillHtml).join('')}</div>` : '';
+  const deltaHtml = isEquipped ? '' : wardDeltaHtml(item, equipped);
 
   const upCost = getItemUpgradeCost(item);
-  const canAffordUp = upCost != null && currentEssence() >= upCost;
-  const upBtnHtml = atMax
+  const canUp = upCost != null && currentEssence() >= upCost;
+  const upBtn = atMax
     ? `<button class="upgrade-btn" disabled>MAX +${upMax}</button>`
-    : `<button class="upgrade-btn" ${canAffordUp ? '' : 'disabled'}>ПРОКАЧАТЬ<span class="cost">−${upCost}🔮</span></button>`;
+    : `<button class="upgrade-btn" data-act="upgrade" data-id="${item.id}" ${canUp ? '' : 'disabled'}>ПРОКАЧАТЬ<span class="cost">−${upCost}🔮</span></button>`;
+  const salVal = getItemSalvageValue(item);
+  const salBtn = isEquipped
+    ? `<button class="salvage-btn" disabled title="Сначала сними">РАСПЫЛИТЬ<span class="gain">+${salVal}🔮</span></button>`
+    : `<button class="salvage-btn" data-act="salvage" data-id="${item.id}">РАСПЫЛИТЬ<span class="gain">+${salVal}🔮</span></button>`;
+  const eqBtn = isEquipped
+    ? `<button class="equip-btn unequip" data-act="unequip" data-slot="${item.slot}">СНЯТЬ</button>`
+    : `<button class="equip-btn" data-act="equip" data-id="${item.id}">НАДЕТЬ</button>`;
 
-  const salvageValue = getItemSalvageValue(item);
-  const salvageHtml = isEquipped
-    ? `<button class="salvage-btn" disabled title="Сначала сними">РАСПЫЛИТЬ<span class="gain">+${salvageValue}🔮</span></button>`
-    : `<button class="salvage-btn">РАСПЫЛИТЬ<span class="gain">+${salvageValue}🔮</span></button>`;
-
-  // FTUE: пульсируем «НАДЕТЬ» только на первой ненадетой шмотке, пока игрок ни разу ничего не надевал.
-  const equipPulse = !isEquipped && ftue.pulseIfPending('itemEquip');
-  const equipBtnHtml = isEquipped
-    ? `<button class="equip-btn unequip">СНЯТЬ</button>`
-    : `<button class="equip-btn${equipPulse ? ' ftue-pulse-btn' : ''}">НАДЕТЬ</button>`;
-
-  div.innerHTML = `
-    <div class="head">
-      <span class="head-left">
-        <span class="rarity-tag" style="color:${r.color}">${r.name.toUpperCase()}</span>
-        ${upBadgeHtml}
-        ${betterBadgeHtml}
-      </span>
-      ${isEquipped ? '<span class="equip-tag"></span>' : ''}
-    </div>
-    <div class="slot-row">
-      <span class="icon">${slot.icon}</span>${slot.name}
-      ${primaryStatHtml(item.primaryAffix, item)}
-    </div>
-    ${uniqueHtml}
-    ${affixesHtml}
-    <div class="item-actions">
-      ${equipBtnHtml}
-      ${upBtnHtml}
-      ${salvageHtml}
-    </div>
-  `;
-
-  div.querySelector('.equip-btn').addEventListener('click', (ev) => {
-    ev.stopPropagation();
-    if (isEquipped) {
-      unequipSlot(item.slot);
-    } else {
-      equipItem(item.id);
-      ftue.recordAction('itemEquip');
-    }
-    renderWardrobe();
-  });
-  div.querySelector('.upgrade-btn').addEventListener('click', (ev) => {
-    ev.stopPropagation();
-    if (atMax || !canAffordUp) return;
-    if (onItemUpgrade(item.id)) {
-      renderHub();
-    }
-  });
-  div.querySelector('.salvage-btn').addEventListener('click', (ev) => {
-    ev.stopPropagation();
-    if (isEquipped) return;
-    if (onItemSalvage(item.id)) {
-      renderHub();
-    }
-  });
-
-  return div;
+  return `<div class="item-card${isEquipped ? ' equipped' : ''}" style="border-color:${r.color}">
+    <div class="head"><span class="head-left">
+      <span class="rarity-tag" style="color:${r.color}">${r.name.toUpperCase()}</span>${upBadge}
+    </span>${isEquipped ? '<span class="equip-tag"></span>' : ''}</div>
+    <div class="slot-row"><span class="icon">${slot.icon}</span>${slot.name}
+      ${primaryStatHtml(item.primaryAffix, item)}</div>
+    ${uniqueHtml}${affixesHtml}${deltaHtml}
+    <div class="item-actions">${eqBtn}${upBtn}${salBtn}</div>
+  </div>`;
 }
 
-function renderWardrobe() {
-  const tabs = $('wardrobe-tabs');
-  tabs.innerHTML = '';
-  for (const [slotId, slot] of Object.entries(EQUIPMENT_SLOTS)) {
-    const tab = document.createElement('div');
-    tab.className = 'ward-tab' + (slotId === currentWardrobeSlot ? ' active' : '');
-    tab.dataset.slot = slotId;
-    tab.title = slot.name;
-    tab.textContent = slot.icon;
-    if (getEquippedItemForSlot(slotId)) {
-      const dot = document.createElement('div');
-      dot.className = 'equipped-dot';
-      tab.appendChild(dot);
-    }
-    tab.addEventListener('click', () => {
-      currentWardrobeSlot = slotId;
-      renderWardrobe();
+let wardCompareSlot = null;
+let _salvageAllArmed = false;   // «взвод» кнопки «Распылить всё» (подтверждение в 2 касания)
+let _salvageArmTimer = null;
+
+function openWardCompare(slotId, focusItemId) {
+  wardCompareSlot = slotId;
+  const overlay = $('ward-compare-overlay');
+  if (!overlay) return;
+  const slot = EQUIPMENT_SLOTS[slotId];
+  const equipped = getEquippedItemForSlot(slotId);
+  const candidates = getItemsForSlot(slotId).filter((it) => !equipped || it.id !== equipped.id);
+  candidates.sort(wardRankCmp);
+  if (focusItemId) candidates.sort((a, b) => (b.id === focusItemId) - (a.id === focusItemId));
+
+  const eqBlock = equipped
+    ? wardCompareCardHtml(equipped, { isEquipped: true })
+    : '<div class="ward-empty">Слот пуст</div>';
+  const candBlocks = candidates.length
+    ? candidates.map((it) => wardCompareCardHtml(it, { isEquipped: false, equipped })).join('')
+    : '<div class="ward-empty">Других предметов в этом слоте нет</div>';
+
+  overlay.innerHTML = `
+    <div class="ward-compare">
+      <div class="cmp-header">
+        <span class="cmp-title">${slot.icon} ${slot.name.toUpperCase()}</span>
+        <button class="cmp-close" data-act="close">✕</button>
+      </div>
+      <div class="cmp-scroll">
+        <div class="cmp-section-label">НАДЕТО</div>
+        ${eqBlock}
+        <div class="cmp-section-label">В НАЛИЧИИ · ${candidates.length}</div>
+        ${candBlocks}
+      </div>
+    </div>`;
+  overlay.style.display = 'flex';
+
+  overlay.onclick = (ev) => { if (ev.target === overlay) closeWardCompare(); };
+  overlay.querySelectorAll('[data-act]').forEach((el) => {
+    el.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const act = el.dataset.act;
+      if (act === 'close') { closeWardCompare(); return; }
+      if (act === 'equip') {
+        equipItem(el.dataset.id);
+        ftue.recordAction('itemEquip');
+        closeWardCompare();
+        renderWardrobe();
+      } else if (act === 'unequip') {
+        unequipSlot(el.dataset.slot);
+        renderWardrobe();
+        openWardCompare(wardCompareSlot);
+      } else if (act === 'upgrade') {
+        if (onItemUpgrade(el.dataset.id)) { renderHub(); openWardCompare(wardCompareSlot); }
+      } else if (act === 'salvage') {
+        if (onItemSalvage(el.dataset.id)) { renderHub(); openWardCompare(wardCompareSlot); }
+      }
     });
-    tabs.appendChild(tab);
+  });
+}
+
+function closeWardCompare() {
+  const overlay = $('ward-compare-overlay');
+  if (overlay) { overlay.style.display = 'none'; overlay.innerHTML = ''; overlay.onclick = null; }
+  wardCompareSlot = null;
+}
+
+// Auto-equip: по каждому слоту надеть лучший предмет (тот же ранг, что ▲/сравнение).
+function autoEquipBest() {
+  let changed = 0;
+  for (const slotId of Object.keys(EQUIPMENT_SLOTS)) {
+    const items = getItemsForSlot(slotId);
+    if (!items.length) continue;
+    const best = items.slice().sort(wardRankCmp)[0];
+    const eq = getEquippedItemForSlot(slotId);
+    if (!eq) { equipItem(best.id); changed++; }
+    else if (best.id !== eq.id && isItemBetterThanEquipped(best)) { equipItem(best.id); changed++; }
   }
-
-  const slot = EQUIPMENT_SLOTS[currentWardrobeSlot];
-  const equipped = getEquippedItemForSlot(currentWardrobeSlot);
-  const all = getItemsForSlot(currentWardrobeSlot);
-
-  const eqRoot = $('wardrobe-equipped');
-  eqRoot.innerHTML = '';
-  const eqTitle = document.createElement('h3');
-  eqTitle.textContent = `${slot.icon} ${slot.name.toUpperCase()} · НАДЕТО`;
-  eqRoot.appendChild(eqTitle);
-  if (!equipped) {
-    const empty = document.createElement('div');
-    empty.className = 'ward-empty';
-    empty.textContent = 'Слот пуст';
-    eqRoot.appendChild(empty);
+  if (changed) {
+    ftue.recordAction('itemEquip');
+    logEvent(`⚡ Одето предметов: ${changed}`, 'crit');
   } else {
-    eqRoot.appendChild(renderItemCard(equipped, true));
+    logEvent('Уже надето лучшее', 'warn');
   }
+  renderWardrobe();
+}
 
-  // Список «в наличии» — без надетого, чтобы не дублировать его в обоих секциях.
-  const nonEquipped = equipped ? all.filter(it => it.id !== equipped.id) : all;
-
-  const invRoot = $('wardrobe-inventory');
-  invRoot.innerHTML = '';
-  const invTitle = document.createElement('h3');
-  invTitle.textContent = `В НАЛИЧИИ (${nonEquipped.length})`;
-  invRoot.appendChild(invTitle);
-  if (nonEquipped.length === 0) {
-    const empty = document.createElement('div');
-    empty.className = 'ward-empty';
-    empty.textContent = equipped ? 'Других предметов в этом слоте нет' : 'Нет предметов в этом слоте';
-    invRoot.appendChild(empty);
+// Распылить ВСЁ ненадетое (только сташ) — необратимо, поэтому подтверждение в 2 касания:
+// 1-й тап «взводит» кнопку (показывает «Точно? +X🔮»), 2-й — распыляет. Взвод спадает
+// сам через 3с или при ре-рендере экрана.
+function onSalvageAllClick() {
+  if (!_salvageAllArmed) {
+    _salvageAllArmed = true;
+    renderWardStash();
+    clearTimeout(_salvageArmTimer);
+    _salvageArmTimer = setTimeout(() => { _salvageAllArmed = false; renderWardStash(); }, 3000);
     return;
   }
-  const rarityOrder = { legendary: 5, epic: 4, rare: 3, good: 2, common: 1 };
-  const sorted = nonEquipped.slice().sort((a, b) => {
-    return (rarityOrder[b.rarity] || 0) - (rarityOrder[a.rarity] || 0);
-  });
-  for (const item of sorted) {
-    invRoot.appendChild(renderItemCard(item, false));
+  clearTimeout(_salvageArmTimer);
+  _salvageAllArmed = false;
+  salvageAllUnequipped();
+}
+
+function salvageAllUnequipped() {
+  const equippedIds = new Set(Object.values(inventoryState.equipped).filter(Boolean));
+  const items = inventoryState.items.filter((it) => !equippedIds.has(it.id));
+  if (!items.length) return;
+  let count = 0, gained = 0;
+  for (const it of items) {
+    gained += getItemSalvageValue(it);   // значение читаем до удаления
+    if (onItemSalvage(it.id)) count++;
   }
+  logEvent(`♻ Распылено предметов: ${count} → +${gained}🔮`, 'kill');
+  renderHub();
 }

@@ -165,10 +165,6 @@ export function getItemsForSlot(slotId) {
   return inventoryState.items.filter(i => i.slot === slotId);
 }
 
-export function getAllItems() {
-  return inventoryState.items.slice();
-}
-
 export function resetInventory() {
   inventoryState.items.length = 0;
   for (const k of Object.keys(inventoryState.equipped)) {

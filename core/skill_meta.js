@@ -5,6 +5,7 @@
 import { SKILLS, MAX_SKILL_LEVEL } from '../balance/skills.js';
 import { getEffectiveStat } from './stats_layer.js';
 import { getSkillLevel } from './loadout.js';
+import { STAT_META } from './stat_meta.js';
 
 function lvlMult(skill, level) {
   return 1 + (level - 1) * (skill.levelBonusPerLvl || 0);
@@ -45,10 +46,10 @@ export function describeSkillChips(id) {
   } else if (s.targetType === 'self_buff') {
     // Бонусы баффа скейлятся с уровнем (см. battle.js: def.bonusX * lvlMult).
     if (s.bonusDamagePct) {
-      chips.push({ icon: '⚔', value: `+${Math.round(s.bonusDamagePct * lm * 100)}%`, label: 'УРОН' });
+      chips.push({ icon: STAT_META.damage.icon, value: `+${Math.round(s.bonusDamagePct * lm * 100)}%`, label: STAT_META.damage.label });
     }
     if (s.bonusAttackSpeedPct) {
-      chips.push({ icon: '⚡', value: `+${Math.round(s.bonusAttackSpeedPct * lm * 100)}%`, label: 'СК.АТК' });
+      chips.push({ icon: STAT_META.attackSpeedPct.icon, value: `+${Math.round(s.bonusAttackSpeedPct * lm * 100)}%`, label: STAT_META.attackSpeedPct.label });
     }
     if (s.minDurationSec != null && s.maxDurationSec != null) {
       chips.push({ icon: '⏳', value: `${s.minDurationSec}-${s.maxDurationSec}с`, label: 'БАФФ' });
@@ -56,7 +57,7 @@ export function describeSkillChips(id) {
   } else if (s.baseDamageMultiplier) {
     const hits = s.hits || 1;
     const total = Math.round(heroDamage * s.baseDamageMultiplier * lm * hits);
-    chips.push({ icon: '⚔', value: `${total}`, label: hits > 1 ? `УРОН ×${hits}` : 'УРОН' });
+    chips.push({ icon: STAT_META.damage.icon, value: `${total}`, label: hits > 1 ? `${STAT_META.damage.label} ×${hits}` : STAT_META.damage.label });
   }
 
   // 2. Тайминг — КД или заряды.

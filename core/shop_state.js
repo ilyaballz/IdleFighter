@@ -18,6 +18,7 @@ import { pickRandomMissingStickerId } from './stickers_state.js';
 import { loadoutState } from './loadout.js';
 import { generateItem } from './inventory.js';
 import { hubState } from '../hub/state.js';
+import { EQUIPMENT_SLOTS } from '../balance/equipment.js';
 
 export const shopState = {
   slots: [],                  // длина = SHOP_CONFIG.slots
@@ -96,7 +97,7 @@ function pickEquipmentRarity() {
 }
 
 function randomEquipmentSlotId() {
-  const slotIds = ['fists', 'chain', 'bracers', 'jacket', 'bandana', 'sneakers'];
+  const slotIds = Object.keys(EQUIPMENT_SLOTS);
   return slotIds[Math.floor(Math.random() * slotIds.length)];
 }
 

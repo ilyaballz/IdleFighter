@@ -223,10 +223,6 @@ export function getTrainerLevelCap(stat) {
   return TRAINER_TIERS[t.tier].levelCap;
 }
 
-export function isStatAtCap(stat) {
-  return heroStatLevelProvider(stat) >= getTrainerLevelCap(stat);
-}
-
 export function getTrainerInfo(stat) {
   const t = hubState.trainers[stat];
   // TRAINER_TIERS теперь индексируется напрямую по tier (tier 0 = locked).

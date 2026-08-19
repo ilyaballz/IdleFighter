@@ -400,60 +400,7 @@
     50%      { outline: 2px solid var(--neon-yellow); outline-offset: 5px; }
   }
 
-  /* Wardrobe */
-  #wardrobe-tabs {
-    display: flex;
-    gap: 4px;
-    background: var(--panel);
-    border: 1px solid var(--panel-border);
-    border-radius: 8px;
-    padding: 4px;
-  }
-  .ward-tab {
-    flex: 1;
-    aspect-ratio: 1 / 1;
-    max-width: 60px;
-    background: #1a1226;
-    border: 1px solid var(--panel-border);
-    border-radius: 6px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 22px;
-    cursor: pointer;
-    transition: border-color 0.1s;
-    position: relative;
-  }
-  .ward-tab.active {
-    border-color: var(--neon-cyan);
-    background: #2a1f3d;
-    box-shadow: 0 0 6px rgba(79, 214, 255, 0.4);
-  }
-  .ward-tab .equipped-dot {
-    position: absolute;
-    top: 3px; right: 3px;
-    width: 7px; height: 7px;
-    border-radius: 50%;
-    background: var(--neon-cyan);
-    box-shadow: 0 0 4px var(--neon-cyan);
-  }
-
-  .ward-section {
-    background: var(--panel);
-    border: 1px solid var(--panel-border);
-    border-radius: 8px;
-    padding: 10px 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-  .ward-section h3 {
-    margin: 0;
-    font-family: 'Bungee', sans-serif;
-    color: var(--neon-cyan);
-    font-size: 12px;
-    letter-spacing: 1px;
-  }
+  /* Wardrobe (табы/секции старого гардероба удалены при paper-doll редизайне) */
   .ward-empty {
     color: var(--dim);
     font-size: 13px;
@@ -592,18 +539,6 @@
     letter-spacing: 0.5px;
     margin-left: 6px;
   }
-  .item-card .better-badge {
-    font-family: 'Bungee', sans-serif;
-    font-size: 10px;
-    color: #1a1a2e;
-    background: #5be35b;
-    border: 1px solid #5be35b;
-    border-radius: 4px;
-    padding: 1px 5px;
-    letter-spacing: 0.5px;
-    margin-left: 6px;
-    box-shadow: 0 0 6px rgba(91, 227, 91, 0.45);
-  }
   .item-card .upgrade-badge.max {
     color: var(--neon-yellow);
     border-color: var(--neon-yellow);
@@ -672,6 +607,159 @@
   .item-card .item-actions button:disabled .gain {
     color: var(--dim);
   }
+
+  /* ═══════════ Гардероб: paper-doll ═══════════ */
+  #ward-paperdoll {
+    background: linear-gradient(160deg, #1a1330, #120c22);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    padding: 10px;
+    margin-bottom: 12px;
+  }
+  .ward-doll {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 6px;
+  }
+  .ward-col { display: flex; flex-direction: column; gap: 12px; }
+  .ward-center { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .ward-hero {
+    width: 100%;
+    min-height: 150px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+  }
+  /* Плейсхолдер-силуэт героя — заменится спрайтом */
+  .ward-hero-fig {
+    width: 60px; height: 128px;
+    position: relative;
+    background: radial-gradient(ellipse 42px 9px at 50% 100%, rgba(79,214,255,0.4), transparent 70%);
+  }
+  .ward-hero-fig::before {
+    content: ''; position: absolute; top: 2px; left: 50%;
+    width: 26px; height: 26px; transform: translateX(-50%);
+    border-radius: 50%; background: #241b3a;
+    border: 2px solid var(--neon-cyan);
+    box-shadow: 0 0 10px rgba(79,214,255,0.45);
+  }
+  .ward-hero-fig::after {
+    content: ''; position: absolute; top: 30px; left: 50%;
+    width: 46px; height: 82px; transform: translateX(-50%);
+    border-radius: 18px 18px 10px 10px; background: #241b3a;
+    border: 2px solid var(--neon-cyan);
+    box-shadow: 0 0 10px rgba(79,214,255,0.35);
+  }
+  .ward-slot {
+    --rc: var(--panel-border);
+    position: relative;
+    width: 54px; height: 54px;
+    background: #14101f;
+    border: 2px solid var(--rc);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 0 6px var(--rc);
+    -webkit-tap-highlight-color: transparent;
+  }
+  .ward-slot:active { transform: scale(0.96); }
+  .ward-slot.empty { border-style: dashed; border-color: var(--panel-border); box-shadow: none; }
+  .ward-slot-ic { font-size: 26px; }
+  .ward-slot-ic.ghost { opacity: 0.35; filter: grayscale(1); }
+  .ward-slot-up {
+    position: absolute; bottom: -7px; left: 50%; transform: translateX(-50%);
+    background: var(--neon-yellow); color: #1a1200;
+    font-family: 'VT323', monospace; font-size: 12px;
+    padding: 0 5px; border-radius: 6px; line-height: 15px;
+  }
+  .ward-slot-arrow, .stash-cell-arrow {
+    position: absolute; top: -6px; right: -6px;
+    color: #5be35b; font-size: 14px;
+    text-shadow: 0 0 5px rgba(91,227,91,0.85);
+  }
+  /* Плитки гардероба используют общий .stat-chip (см. блок скиллов) — свои классы не нужны. */
+
+  /* ═══════════ Гардероб: сташ ═══════════ */
+  .ward-stash-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 6px; margin-bottom: 8px;
+  }
+  .ward-stash-title {
+    font-family: 'VT323', monospace; font-size: 14px;
+    color: var(--neon-cyan); letter-spacing: 1px; white-space: nowrap;
+  }
+  .stash-act {
+    font-family: 'VT323', monospace; font-size: 13px;
+    padding: 5px 10px; border-radius: 8px;
+    border: 1px solid; background: transparent; cursor: pointer;
+    white-space: nowrap; -webkit-tap-highlight-color: transparent;
+  }
+  .stash-act:active { transform: scale(0.97); }
+  .stash-act.equip-all { color: var(--neon-cyan); border-color: var(--neon-cyan); }
+  .stash-act.salvage-all { color: var(--neon-pink); border-color: var(--neon-pink); }
+  .stash-act.salvage-all.armed {
+    background: var(--neon-pink); color: #180410; font-weight: bold;
+    box-shadow: 0 0 10px rgba(255,62,165,0.5);
+  }
+  .stash-act:disabled { opacity: 0.4; cursor: not-allowed; color: var(--dim); border-color: var(--panel-border); }
+  .ward-stash-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+  }
+  .stash-cell {
+    --rc: var(--panel-border);
+    position: relative; aspect-ratio: 1;
+    background: #14101f; border: 2px solid var(--rc);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; box-shadow: 0 0 6px var(--rc);
+    -webkit-tap-highlight-color: transparent;
+  }
+  .stash-cell:active { transform: scale(0.95); }
+  .stash-cell-ic { font-size: 26px; }
+  .stash-cell-up {
+    position: absolute; bottom: 2px; right: 4px;
+    color: var(--neon-yellow); font-family: 'VT323', monospace; font-size: 12px;
+  }
+
+  /* ═══════════ Гардероб: окно сравнения ═══════════ */
+  #ward-compare-overlay {
+    position: fixed; inset: 0;
+    background: rgba(6,4,12,0.82);
+    z-index: 50;
+    display: flex; align-items: center; justify-content: center;
+    padding: 16px;
+  }
+  .ward-compare {
+    width: 100%; max-width: 380px; max-height: 88vh;
+    background: var(--panel); border: 2px solid var(--panel-border);
+    border-radius: 12px; display: flex; flex-direction: column; overflow: hidden;
+  }
+  .cmp-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 12px; border-bottom: 1px solid var(--panel-border);
+  }
+  .cmp-title { font-family: 'VT323', monospace; font-size: 18px; color: var(--neon-yellow); letter-spacing: 1px; }
+  .cmp-close {
+    background: transparent; border: none; color: var(--dim);
+    font-size: 20px; cursor: pointer; line-height: 1; padding: 2px 6px;
+  }
+  .cmp-scroll {
+    padding: 10px 12px; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .cmp-section-label {
+    font-family: 'VT323', monospace; font-size: 12px;
+    color: var(--dim); letter-spacing: 1px; margin-top: 4px;
+  }
+  .cmp-deltas { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+  .cmp-delta {
+    font-family: 'VT323', monospace; font-size: 12px;
+    padding: 1px 6px; border-radius: 5px; background: #0c0815;
+  }
+  .cmp-delta.up { color: #5be35b; }
+  .cmp-delta.down { color: #ff6a6a; }
+  .cmp-delta.flat { color: var(--dim); }
 
   .ward-action-btn {
     margin-top: 4px;
@@ -2495,13 +2583,15 @@
         <span class="title">👕 ГАРДЕРОБ</span>
       </div>
       <div class="sub-body">
-        <div id="wardrobe-tabs"></div>
-        <div id="wardrobe-equipped" class="ward-section"></div>
-        <div id="wardrobe-inventory" class="ward-section"></div>
+        <div id="ward-paperdoll"></div>
+        <div id="ward-stash"></div>
       </div>
       <button class="back-btn-large" data-back>← НАЗАД</button>
     </div>
   </div>
+
+  <!-- Окно сравнения предметов (гардероб) -->
+  <div id="ward-compare-overlay" style="display:none"></div>
 
   <!-- Тап-тайминг -->
   <div id="tap-overlay">

@@ -8,7 +8,7 @@ import { FEEDBACK } from '../balance/visuals.js';
 import { PLAYER } from '../balance/player.js';
 import { arenaTypeLabel } from '../balance/enemies.js';
 import { LEGENDARY_UNIQUE_AFFIXES } from '../balance/equipment.js';
-import { loadoutState, getSkillLevel } from '../core/loadout.js';
+import { getSkillLevel } from '../core/loadout.js';
 import { getEquippedUniqueAffixes } from '../core/inventory.js';
 import { spawnDamageNumber, triggerSkillShake, spawnEffect } from '../core/fx.js';
 
@@ -595,7 +595,7 @@ export function localCdRateForSkill(skillId) {
   return Math.max(0, lvl - 1) * def.cdRateBonusPerLvl;
 }
 
-function skillCooldownAfterCdr(baseCd, skillId) {
+export function skillCooldownAfterCdr(baseCd, skillId) {
   const globalRate = getEffectiveStat('skillCdrPct');
   const localRate = localCdRateForSkill(skillId);
   return Math.max(0.1, baseCd / (1 + globalRate + localRate));

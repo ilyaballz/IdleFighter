@@ -65,10 +65,6 @@ export function getChapterSkin(loc, kind) {
   return ch[kind] || null;
 }
 
-export function chapterLabel(loc) {
-  return CHAPTERS[chapterForLocation(loc)]?.label || '';
-}
-
 // Финальные боссы глав — конфиг-driven на base boss kind.
 // Поля строго перечислены в createEnemyFromTemplate (battle.js) и forwarded в arena.js.
 //
